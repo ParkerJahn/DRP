@@ -1,6 +1,6 @@
-import { createContext, useEffect, useState } from 'react';
+import { createContext, useEffect, useState, useRef } from 'react';
 import { auth } from '../config/firebase';
-import { doc, getDoc, Timestamp } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { onAuthStateChanged, getIdToken, signOut as firebaseSignOut } from 'firebase/auth';
 import type { User as FirebaseUser } from 'firebase/auth';
@@ -18,8 +18,6 @@ interface AuthContextType {
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-
-
 interface AuthProviderProps {
   children: React.ReactNode;
 }
@@ -31,42 +29,72 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [role, setRole] = useState<UserRole | null>(null);
   const [proId, setProId] = useState<string | null>(null);
   const [proStatus, setProStatus] = useState<ProStatus | null>(null);
+  
+  // Tab-specific identifier for debugging
+  const tabId = useRef(`tab_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+  
+  // Fetch lock to prevent duplicate operations
+  const isFetching = useRef(false);
+  const lastFetchedUid = useRef<string | null>(null);
+  const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch user data from Firestore
+  // Fetch user data from Firestore with debouncing
   const fetchUserData = async (uid: string) => {
-    try {
-      const userRef = doc(db, 'users', uid);
-      const userSnap = await getDoc(userRef);
-      console.log('📄 User document exists:', userSnap.exists());
-      
-      if (userSnap.exists()) {
-        const userData = userSnap.data() as User;
-        console.log('✅ User data fetched successfully:', userData);
+    // Clear any existing timeout
+    if (fetchTimeoutRef.current) {
+      clearTimeout(fetchTimeoutRef.current);
+    }
+
+    // Prevent duplicate fetches for the same user
+    if (lastFetchedUid.current === uid && user) {
+      console.log(`[${tabId.current}] ⏭️ Skipping duplicate fetch for user:`, uid);
+      return;
+    }
+
+    // Set a small delay to debounce rapid calls
+    fetchTimeoutRef.current = setTimeout(async () => {
+      // Double-check we're not already fetching
+      if (isFetching.current) {
+        console.log(`[${tabId.current}] ⏭️ Skipping fetch - already fetching for:`, lastFetchedUid.current);
+        return;
+      }
+
+      try {
+        isFetching.current = true;
+        lastFetchedUid.current = uid;
         
-        setUser(userData);
-        setRole(userData.role);
-        setProId(userData.proId || null);
-        setProStatus(userData.proStatus || null);
-        setLoading(false); // Set loading to false when user data is fetched
-        console.log('🔄 Loading set to false after fetching user data');
-      } else {
-        console.log('❌ User document does not exist in Firestore');
+        console.log(`[${tabId.current}] 📄 Fetching user data for:`, uid);
+        const userRef = doc(db, 'users', uid);
+        const userSnap = await getDoc(userRef);
+        
+        if (userSnap.exists()) {
+          const userData = userSnap.data() as User;
+          console.log(`[${tabId.current}] ✅ User data fetched successfully:`, userData);
+          
+          setUser(userData);
+          setRole(userData.role);
+          setProId(userData.proId || null);
+          setProStatus(userData.proStatus || null);
+          setLoading(false);
+        } else {
+          console.log(`[${tabId.current}] ❌ User document not found`);
+          setUser(null);
+          setRole(null);
+          setProId(null);
+          setProStatus(null);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error(`[${tabId.current}] Error fetching user data:`, error);
         setUser(null);
         setRole(null);
         setProId(null);
         setProStatus(null);
-        setLoading(false); // Set loading to false even when no user document
-        console.log('🔄 Loading set to false after no user document found');
+        setLoading(false);
+      } finally {
+        isFetching.current = false;
       }
-    } catch (error) {
-      console.error('Error fetching user data:', error);
-      setUser(null);
-      setRole(null);
-      setProId(null);
-      setProStatus(null);
-      setLoading(false); // Set loading to false on error
-      console.log('🔄 Loading set to false after error');
-    }
+    }, 100); // 100ms debounce delay
   };
 
   // Refresh user data and claims
@@ -74,67 +102,55 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     if (!firebaseUser) return;
 
     try {
-      // Force refresh the ID token to get updated claims
+      console.log(`[${tabId.current}] 🔄 Refreshing user data...`);
       await getIdToken(firebaseUser, true);
-      
-      // Fetch updated user data
       await fetchUserData(firebaseUser.uid);
     } catch (error) {
-      console.error('Error refreshing user:', error);
+      console.error(`[${tabId.current}] Error refreshing user:`, error);
     }
   };
 
   // Sign out
   const signOut = async () => {
     try {
+      console.log(`[${tabId.current}] 🚪 Signing out...`);
       await firebaseSignOut(auth);
       setUser(null);
       setRole(null);
       setProId(null);
       setProStatus(null);
+      
+      // Reset fetch lock
+      isFetching.current = false;
+      lastFetchedUid.current = null;
     } catch (error) {
-      console.error('Error signing out:', error);
+      console.error(`[${tabId.current}] Error signing out:`, error);
     }
   };
 
-  // Listen for auth state changes
+  // Listen for auth state changes - FIXED: removed dependencies that were causing cleanup
   useEffect(() => {
+    console.log(`[${tabId.current}] 🔐 Setting up auth state listener...`);
+    
+    // Check current auth state immediately
+    const currentUser = auth.currentUser;
+    console.log(`[${tabId.current}] 🔍 Current Firebase user:`, currentUser ? currentUser.uid : 'none');
+    
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log(`[${tabId.current}] 🔍 Auth state changed:`, firebaseUser ? 'signed in' : 'signed out');
+      if (firebaseUser) {
+        console.log(`[${tabId.current}] 🔍 Firebase user details:`, {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          emailVerified: firebaseUser.emailVerified
+        });
+      }
+      
       setFirebaseUser(firebaseUser);
       
       if (firebaseUser) {
-        // User is signed in - check if they have a document
-        console.log('🔍 User signed in, checking for existing document...');
-        const userRef = doc(db, 'users', firebaseUser.uid);
-        const userSnap = await getDoc(userRef);
-        
-        if (userSnap.exists()) {
-          // User document exists, fetch the data
-          console.log('📖 User document exists, fetching data...');
-          await fetchUserData(firebaseUser.uid);
-        } else {
-          // User document doesn't exist yet - this is normal for new registrations
-          // Create a minimal user object for Firebase Auth user
-          console.log('⏳ User document not found - creating minimal user object...');
-          const minimalUser: User = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            displayName: firebaseUser.displayName || '',
-            firstName: '',
-            lastName: '',
-            phoneNumber: '',
-            role: 'PRO', // Default to PRO for new registrations
-            createdAt: Timestamp.now(),
-            updatedAt: Timestamp.now(),
-            proStatus: 'inactive' // Default to inactive for new PRO users
-          };
-          console.log('✅ Created minimal user:', minimalUser);
-          setUser(minimalUser);
-          setRole('PRO');
-          setProStatus('inactive');
-          setLoading(false);
-          console.log('🔄 Loading set to false, user state updated');
-        }
+        // User is signed in - fetch their data
+        await fetchUserData(firebaseUser.uid);
       } else {
         // User is signed out
         setUser(null);
@@ -145,26 +161,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     });
 
-    return () => unsubscribe();
-  }, []);
-
-  // Listen for ID token changes (for custom claims updates)
-  useEffect(() => {
-    if (!firebaseUser) return;
-
-    const unsubscribe = auth.onIdTokenChanged(async (user) => {
-      if (user) {
-        // Token refreshed, check for updated claims
-        const token = await user.getIdTokenResult();
-        if (token.claims.role !== role || token.claims.proId !== proId) {
-          // Claims changed, refresh user data
-          await refreshUser();
-        }
+    return () => {
+      console.log(`[${tabId.current}] 🧹 Cleaning up auth state listener...`);
+      unsubscribe();
+      
+      // Clean up any pending fetch timeouts
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
       }
-    });
-
-    return () => unsubscribe();
-  }, [firebaseUser, role, proId]);
+    };
+  }, []); // Empty dependency array - listener should only be set up once
 
   const value: AuthContextType = {
     user,

@@ -19,6 +19,9 @@ export const useAuth = () => {
       },
       refreshUser: async () => {
         console.error('refreshUser called outside of AuthProvider');
+      },
+      markExplicitSignIn: () => {
+        console.error('markExplicitSignIn called outside of AuthProvider');
       }
     };
   }

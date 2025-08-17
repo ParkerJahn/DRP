@@ -178,12 +178,12 @@ function Header() {
                 {/* Logo */}
                 <img 
                     className="block dark:hidden w-[200px] h-[120px] transition-opacity duration-300" 
-                    src="lightmodelogo.png" 
+                    src="/public/lightmodelogo.png" 
                     alt="DRP Workshop Light Logo"
                 />
                 <img 
                     className="hidden dark:block w-[200px] h-[120px] transition-opacity duration-300" 
-                    src="darkmodelogo.png" 
+                    src="/public/darkmodelogo.png" 
                     alt="DRP Workshop Dark Logo"
                 />
 

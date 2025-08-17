@@ -43,24 +43,29 @@ service cloud.firestore {
       return isSignedIn() && proId() != null; 
     }
 
-    // Users collection - role-based access
+    // Users collection - role-based access with fallback
     match /users/{userId} {
       allow read: if isSignedIn() && (
         userId == uid() || // can read own profile (basic self-access)
-        (isPro() && proId() != null && userId in get(/databases/$(database)/documents/teams/$(proId())).data.members) // PRO can read team members
+        (isPro() && proId() != null && resource.data.proId == proId()) || // PRO can read team members
+        (isPro() && userId == uid()) // PRO can read their own profile even without proId claim
       );
       allow update: if isSignedIn() && userId == uid() && (
         // only allow updating safe fields
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['displayName', 'photoURL', 'phoneNumber'])
       );
-      allow create, delete: if false; // only created by Functions
+      allow create: if isSignedIn() && userId == uid(); // Allow users to create their own profile
+      allow delete: if false; // only deleted by Functions
     }
 
     // Teams collection - visible to team members only
     match /teams/{teamProId} {
-      allow read: if isTeamMember() && teamProId == proId();
-      allow write: if isOwnPro() && teamProId == uid();
+      allow read: if isSignedIn() && (
+        (isTeamMember() && teamProId == proId()) || // Team members can read their team
+        (isPro() && teamProId == uid()) // PRO can read their own team even without proId claim
+      );
+      allow write: if isSignedIn() && isPro() && teamProId == uid();
     }
 
     // Invites collection - opaque to clients
@@ -71,45 +76,67 @@ service cloud.firestore {
 
     // Chats collection - team-based access
     match /chats/{chatId} {
-      allow read: if isTeamMember() && uid() in resource.data.members;
-      allow create: if isProOrStaff() && proId() == request.resource.data.proId;
-      allow update, delete: if isProOrStaff() && proId() == resource.data.proId;
+      allow read: if isSignedIn() && (
+        (isTeamMember() && uid() in resource.data.members) || // Team members can read chats they're in
+        (isPro() && proId() == resource.data.proId) // PRO can read team chats even without proId claim
+      );
+      allow create: if isSignedIn() && (
+        (isProOrStaff() && proId() == request.resource.data.proId) || // Team members can create chats
+        (isPro() && request.resource.data.proId == uid()) // PRO can create chats for their team
+      );
+      allow update, delete: if isSignedIn() && (
+        (isProOrStaff() && proId() == resource.data.proId) || // Team members can update chats
+        (isPro() && resource.data.proId == uid()) // PRO can update team chats
+      );
     }
 
     // Messages subcollection - immutable once created
     match /chats/{chatId}/messages/{messageId} {
-      allow read: if isTeamMember() && 
-        uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
-      allow create: if isTeamMember() && 
-        uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
+      allow read: if isSignedIn() && (
+        (isTeamMember() && uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.members) || // Team members can read messages
+        (isPro() && get(/databases/$(database)/documents/chats/$(chatId)).data.proId == uid()) // PRO can read team messages
+      );
+      allow create: if isSignedIn() && (
+        (isTeamMember() && uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.members) || // Team members can create messages
+        (isPro() && get(/databases/$(database)/documents/chats/$(chatId)).data.proId == uid()) // PRO can create team messages
+      );
       allow update, delete: if false; // immutable
     }
 
     // Events collection - role-based access
     match /events/{eventId} {
-      allow read: if isTeamMember() && (
-        proId() == resource.data.proId || // PRO/Staff can read all team events
-        (isAthlete() && uid() in resource.data.attendees) // Athletes only see events they're in
+      allow read: if isSignedIn() && (
+        (isTeamMember() && proId() == resource.data.proId) || // Team members can read team events
+        (isPro() && resource.data.proId == uid()) || // PRO can read their team events
+        (isAthlete() && uid() in resource.data.attendees) // Athletes can see events they're in
       );
-      allow create, update, delete: if isProOrStaff() && proId() == request.resource.data.proId;
+      allow create, update, delete: if isSignedIn() && (
+        (isProOrStaff() && proId() == request.resource.data.proId) || // Team members can manage events
+        (isPro() && request.resource.data.proId == uid()) // PRO can manage their team events
+      );
     }
 
     // Payments collection - summary only, no client writes
     match /payments/{paymentId} {
-      allow read: if isTeamMember() && (
-        (isPro() && proId() == resource.data.proId) || // PRO sees all payments
-        (isAthlete() && resource.data.payerUid == uid()) // Athletes see their own payments
+      allow read: if isSignedIn() && (
+        (isTeamMember() && (isPro() && proId() == resource.data.proId)) || // Team members can read team payments
+        (isPro() && resource.data.proId == uid()) || // PRO can read their team payments
+        (isAthlete() && resource.data.payerUid == uid()) // Athletes can see their own payments
       );
       allow write: if false; // only via Functions/webhooks
     }
 
     // Programs collection - SWEATsheet access
     match /programs/{programId} {
-      allow read: if isTeamMember() && (
-        proId() == resource.data.proId || // PRO/Staff can read all team programs
-        (isAthlete() && resource.data.athleteUid == uid()) // Athletes see their own programs
+      allow read: if isSignedIn() && (
+        (isTeamMember() && proId() == resource.data.proId) || // Team members can read team programs
+        (isPro() && resource.data.proId == uid()) || // PRO can read their team programs
+        (isAthlete() && resource.data.athleteUid == uid()) // Athletes can see their own programs
       );
-      allow create, update, delete: if isProOrStaff() && proId() == request.resource.data.proId;
+      allow create, update, delete: if isSignedIn() && (
+        (isProOrStaff() && proId() == request.resource.data.proId) || // Team members can manage programs
+        (isPro() && request.resource.data.proId == uid()) // PRO can manage their team programs
+      );
     }
 
     // Deny all other access

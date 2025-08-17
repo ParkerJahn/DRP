@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { db } from '../config/firebase';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+// Temporarily disabled Firestore imports due to permission errors
+// import { db } from '../config/firebase';
+// import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 
 interface TeamMember {
   uid: string;
@@ -26,9 +27,23 @@ function TeamManagement() {
 
   // Define loadTeamData function before using it in useEffect
   const loadTeamData = async () => {
+    if (!user?.uid) return;
+    
     try {
       setLoading(true);
       
+      // TEMPORARILY DISABLED: Team data fetching causing Firestore permission errors
+      // TODO: Fix Firestore rules to allow PRO users to read their team data
+      console.log('🔍 Team data fetching temporarily disabled - fixing Firestore rules');
+      
+      // Set default data for now
+      setTeamMembers([]);
+      setSeatLimits({
+        staffLimit: user.seats?.staffLimit || 5,
+        athleteLimit: user.seats?.athleteLimit || 20
+      });
+      
+      /* ORIGINAL CODE - ENABLE AFTER FIXING FIRESTORE RULES
       // Load team members
       const membersQuery = query(
         collection(db, 'users'),
@@ -60,6 +75,7 @@ function TeamManagement() {
           athleteLimit: user.seats.athleteLimit || 20
         });
       }
+      */
 
       // Load pending invites (this would come from your invites collection)
       // For now, we'll simulate this

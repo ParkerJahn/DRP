@@ -4,10 +4,15 @@ import { Dashboard } from './Dashboard';
 import TeamManagement from './TeamManagement';
 import BillingSubscribe from '../pages/BillingSubscribe';
 import LoadingIndicator from './LoadingIndicator';
+import { Navigate } from 'react-router-dom';
 
 type Route = 'dashboard' | 'team' | 'profile' | 'messages' | 'calendar' | 'programs' | 'payments';
 
-function AppRouter() {
+interface AppRouterProps {
+  currentPath?: string;
+}
+
+function AppRouter({ currentPath }: AppRouterProps) {
   const { loading, role, proStatus } = useAuth();
   const [currentRoute, setCurrentRoute] = useState<Route>('dashboard');
 
@@ -27,6 +32,16 @@ function AppRouter() {
     window.addEventListener('navigate', handleNavigation as EventListener);
     return () => window.removeEventListener('navigate', handleNavigation as EventListener);
   }, []);
+
+  // Update route based on currentPath prop if provided
+  useEffect(() => {
+    if (currentPath) {
+      const route = currentPath.split('/').pop() as Route;
+      if (route && ['dashboard', 'team', 'profile', 'messages', 'calendar', 'programs', 'payments'].includes(route)) {
+        setCurrentRoute(route);
+      }
+    }
+  }, [currentPath]);
 
   // Function to navigate to different routes
   const navigateTo = (route: Route) => {
@@ -53,13 +68,40 @@ function AppRouter() {
     return <BillingSubscribe />;
   }
 
+  // Route guard function to check access permissions
+  const canAccessRoute = (route: Route): boolean => {
+    switch (route) {
+      case 'dashboard':
+        return true; // All authenticated users can access dashboard
+      case 'team':
+        return role === 'PRO'; // Only PRO can manage team
+      case 'profile':
+        return true; // All users can access their profile
+      case 'messages':
+        return role === 'PRO' || role === 'STAFF'; // PRO and Staff can create chats
+      case 'calendar':
+        return role === 'PRO' || role === 'STAFF'; // PRO and Staff can manage calendar
+      case 'programs':
+        return role === 'PRO' || role === 'STAFF'; // PRO and Staff can build programs
+      case 'payments':
+        return role === 'PRO' || role === 'ATHLETE'; // PRO manages payouts, Athletes pay
+      default:
+        return false;
+    }
+  };
+
+  // If user doesn't have access to current route, redirect to dashboard
+  if (!canAccessRoute(currentRoute)) {
+    return <Navigate to="/app/dashboard" replace />;
+  }
+
   // Render component based on current route
   const renderComponent = () => {
     switch (currentRoute) {
       case 'dashboard':
         return <Dashboard />;
       case 'team':
-        return <TeamManagement />;
+        return role === 'PRO' ? <TeamManagement /> : <Navigate to="/app/dashboard" replace />;
       case 'profile':
         return (
           <div className="p-6">

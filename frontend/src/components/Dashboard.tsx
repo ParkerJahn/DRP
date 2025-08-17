@@ -2,17 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 
 import ProUpgrade from './ProUpgrade';
-import { 
-  doc, 
-  getDoc, 
-  collection, 
-  query, 
-  where, 
-  limit, 
-  getDocs,
-  orderBy 
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
+// Temporarily disabled Firestore imports due to permission errors
+// import { 
+//   doc, 
+//   getDoc, 
+//   collection, 
+//   query, 
+//   where, 
+//   limit, 
+//   getDocs,
+//   orderBy 
+// } from 'firebase/firestore';
+// import { db } from '../config/firebase';
 
 export const Dashboard: React.FC = () => {
   const { user, role, proStatus, proId, signOut, loading } = useAuth();
@@ -27,17 +28,22 @@ export const Dashboard: React.FC = () => {
   // Fetch dashboard stats efficiently (single query per role)
   useEffect(() => {
     const fetchDashboardStats = async () => {
-      // Only fetch stats if we have a role and either proId (for team users) or role is PRO
-      if (!role) return;
-      
-      // For new users without proId, skip stats fetching
-      if (!proId && role !== 'PRO') {
-        console.log('⏭️ Skipping stats fetch - no proId and not PRO role');
-        return;
-      }
-      
       setLoadingStats(true);
+      
       try {
+        // TEMPORARILY DISABLED: Dashboard stats fetching causing Firestore permission errors
+        // TODO: Fix Firestore rules to allow authenticated users to read their data
+        console.log('🔍 Dashboard stats fetching temporarily disabled - fixing Firestore rules');
+        
+        // Set default stats for now
+        setStats({
+          teamMembers: 0,
+          activePrograms: 0,
+          upcomingEvents: 0,
+          recentPayments: 0
+        });
+        
+        /* ORIGINAL CODE - ENABLE AFTER FIXING FIRESTORE RULES
         // Fetch team stats for PRO users
         if (role === 'PRO') {
           const teamDoc = await getDoc(doc(db, 'teams', proId || user?.uid || ''));
@@ -86,6 +92,7 @@ export const Dashboard: React.FC = () => {
             setStats(prev => ({ ...prev, recentPayments: paymentsSnapshot.size }));
           }
         }
+        */
 
       } catch (error) {
         console.error('Error fetching dashboard stats:', error);

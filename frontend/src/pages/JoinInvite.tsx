@@ -119,21 +119,31 @@ const JoinInvite: React.FC = () => {
 
         const newUser = userCredential.user;
 
-        // Create user document in Firestore
-        const userData = {
-          uid: newUser.uid,
-          email: formData.email,
-          displayName: `${formData.firstName} ${formData.lastName}`,
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          phoneNumber: formData.phoneNumber,
-          role: inviteData.role,
-          proId: inviteData.proId,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        };
+        // Call Cloud Function to redeem invite and create user profile
+        const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/redeemInvite', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${await newUser.getIdToken()}`
+          },
+          body: JSON.stringify({
+            uid: newUser.uid,
+            proId: inviteData.proId,
+            role: inviteData.role,
+            userData: {
+              email: formData.email,
+              displayName: `${formData.firstName} ${formData.lastName}`,
+              firstName: formData.firstName,
+              lastName: formData.lastName,
+              phoneNumber: formData.phoneNumber
+            }
+          })
+        });
 
-        await setDoc(doc(db, 'users', newUser.uid), userData);
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to redeem invite');
+        }
 
         console.log('✅ New user account created successfully');
         navigate('/app/dashboard');

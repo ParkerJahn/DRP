@@ -1,6 +1,6 @@
 // Import the functions you need
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, setPersistence, browserSessionPersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -15,5 +15,9 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+
+// Set auth persistence to session-only (cleared when tab closes)
+setPersistence(auth, browserSessionPersistence);
+
 export const googleProvider = new GoogleAuthProvider();
 export const db = getFirestore(app);

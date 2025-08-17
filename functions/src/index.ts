@@ -329,6 +329,102 @@ export const validateInvite = onRequest({
   }
 });
 
+// Invite redemption function - Processes invite redemption and sets up user
+export const redeemInvite = onRequest({
+  cors: true,
+  maxInstances: 5,
+  memory: '256MiB',
+  timeoutSeconds: 30
+}, async (request, response) => {
+  // Handle CORS preflight
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set('Access-Control-Allow-Methods', 'GET, POST');
+  response.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  if (request.method === 'OPTIONS') {
+    response.status(204).send('');
+    return;
+  }
+
+  try {
+    const { uid, proId, role, userData } = request.body;
+    
+    if (!uid || !proId || !role || !userData) {
+      response.status(400).json({ error: 'Missing required fields' });
+      return;
+    }
+
+    // Verify the user is authenticated
+    const authHeader = request.headers.authorization || '';
+    const authenticatedUid = await verifyFirebaseToken(authHeader);
+    
+    if (authenticatedUid !== uid) {
+      response.status(403).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    // Validate invite and check seat availability
+    const validation = await validateInviteAndSeats(proId, role);
+    
+    if (!validation.valid) {
+      response.status(400).json({ 
+        valid: false, 
+        error: validation.message 
+      });
+      return;
+    }
+
+    // Create user document with proper role and proId
+    const userDoc = {
+      uid: uid,
+      email: userData.email,
+      displayName: userData.displayName,
+      firstName: userData.firstName,
+      lastName: userData.lastName,
+      phoneNumber: userData.phoneNumber,
+      role: role,
+      proId: proId,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    await db.collection('users').doc(uid).set(userDoc);
+
+    // Set custom claims for role-based access
+    await getAuth().setCustomUserClaims(uid, {
+      role: role,
+      proId: proId
+    });
+
+    // Update team member count
+    const teamRef = db.collection('teams').doc(proId);
+    await db.runTransaction(async (transaction) => {
+      const teamDoc = await transaction.get(teamRef);
+      if (teamDoc.exists) {
+        const currentData = teamDoc.data();
+        const memberType = role === 'STAFF' ? 'staff' : 'athlete';
+        const newCount = (currentData?.membersCount?.[memberType] || 0) + 1;
+        
+        transaction.update(teamRef, {
+          [`membersCount.${memberType}`]: newCount,
+          updatedAt: new Date()
+        });
+      }
+    });
+
+    logger.info('User successfully redeemed invite:', { uid, role, proId });
+    
+    response.status(200).json({ 
+      success: true, 
+      message: 'Invite redeemed successfully' 
+    });
+    
+  } catch (error) {
+    logger.error('Error redeeming invite:', error);
+    response.status(500).json({ error: 'Failed to redeem invite' });
+  }
+});
+
 // export const helloWorld = onRequest((request, response) => {
 //   logger.info("Hello logs!", {structuredData: true});
 //   response.send("Hello from Firebase!");

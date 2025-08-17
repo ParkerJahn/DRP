@@ -19,6 +19,7 @@ export const SignIn = ({ onSwitchToRegister, onAuthSuccess }: { onSwitchToRegist
 
     try {
       await signInWithEmailAndPassword(auth, formData.email, formData.password);
+      
       await refreshUser();
       
       // Call onAuthSuccess with user data

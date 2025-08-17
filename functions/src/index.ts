@@ -1,0 +1,335 @@
+/**
+ * Import function triggers from their respective submodules:
+ *
+ * import {onCall} from "firebase-functions/v2/https";
+ * import {onDocumentWritten} from "firebase-functions/v2/firestore";
+ *
+ * See a full list of supported triggers at https://firebase.google.com/docs/functions
+ */
+
+import {setGlobalOptions} from "firebase-functions";
+import {onRequest} from "firebase-functions/v2/https";
+
+import * as logger from "firebase-functions/logger";
+import {initializeApp} from "firebase-admin/app";
+import {getAuth} from "firebase-admin/auth";
+import {getFirestore} from "firebase-admin/firestore";
+import Stripe from 'stripe';
+import {defineString} from "firebase-functions/params";
+
+// Initialize Firebase Admin
+initializeApp();
+
+// Define environment parameters
+const stripeSecretKey = defineString("STRIPE_SECRET_KEY");
+const stripeWebhookSecret = defineString("STRIPE_WEBHOOK_SECRET");
+const appBaseUrl = defineString("APP_BASE_URL");
+
+// Initialize Firestore
+const db = getFirestore();
+
+// Start writing functions
+// https://firebase.google.com/docs/functions/typescript
+
+// For cost control, you can set the maximum number of containers that can be
+// running at the same time. This helps mitigate the impact of unexpected
+// traffic spikes by instead downgrading performance. This limit is a
+// per-function limit. You can override the limit for each function using the
+// `maxInstances` option in the function's options, e.g.
+// `onRequest({ maxInstances: 5 }, (req, res) => { ... })`.
+// NOTE: setGlobalOptions does not apply to functions using the v1 API. V1
+// functions should each use functions.runWith({ maxInstances: 10 }) instead.
+// In the v1 API, each function can only serve one request per container, so
+// this will be the maximum concurrent request count.
+setGlobalOptions({ maxInstances: 10 });
+
+// Helper function to verify Firebase Auth token
+async function verifyFirebaseToken(authHeader: string): Promise<string> {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    throw new Error('No valid authorization token');
+  }
+  
+  const token = authHeader.split('Bearer ')[1];
+  try {
+    const decodedToken = await getAuth().verifyIdToken(token);
+    return decodedToken.uid;
+  } catch (error) {
+    logger.error('Failed to verify Firebase token:', error);
+    throw new Error('Invalid authorization token');
+  }
+}
+
+// Helper function to validate invite and check seat availability
+async function validateInviteAndSeats(proId: string, role: string): Promise<{ valid: boolean; message?: string }> {
+  try {
+    // Get the PRO user's seat limits
+    const proUserDoc = await db.collection('users').doc(proId).get();
+    if (!proUserDoc.exists) {
+      return { valid: false, message: 'PRO user not found' };
+    }
+
+    const proUserData = proUserDoc.data();
+    if (proUserData?.proStatus !== 'active') {
+      return { valid: false, message: 'PRO account is not active' };
+    }
+
+    // Get current team member counts
+    const teamMembersQuery = await db.collection('users')
+      .where('proId', '==', proId)
+      .where('role', '==', role)
+      .get();
+
+    const currentCount = teamMembersQuery.size;
+    const limit = role === 'STAFF' ? 5 : 20; // Default limits
+
+    if (currentCount >= limit) {
+      return { valid: false, message: `${role} seat limit reached` };
+    }
+
+    return { valid: true };
+  } catch (error) {
+    logger.error('Error validating invite:', error);
+    return { valid: false, message: 'Error validating invite' };
+  }
+}
+
+// PRO Upgrade Function - Creates Stripe checkout session
+export const createProUpgradeCheckout = onRequest({
+  cors: true,
+  maxInstances: 5, // Reduced for cost control
+  memory: '256MiB', // Minimal memory for cost control
+  timeoutSeconds: 30
+}, async (request, response) => {
+  // Handle CORS preflight
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set('Access-Control-Allow-Methods', 'GET, POST');
+  response.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  if (request.method === 'OPTIONS') {
+    response.status(204).send('');
+    return;
+  }
+
+  try {
+    // Verify user is authenticated
+    const userId = await verifyFirebaseToken(request.headers.authorization || '');
+    
+    // Check if user already has PRO status
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (userDoc.exists && userDoc.data()?.proStatus === 'active') {
+      response.status(400).json({ error: 'User already has PRO status' });
+      return;
+    }
+
+    // Initialize Stripe
+    const stripe = new Stripe(stripeSecretKey.value(), {
+      apiVersion: '2025-07-30.basil',
+    });
+
+    logger.info('Creating PRO upgrade checkout for user:', userId);
+
+    // Create Stripe checkout session
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price: 'price_1Rx9BZKkXyY3p5G7ndKYsk6B', // REPLACE WITH YOUR ACTUAL PRICE ID FROM STRIPE DASHBOARD
+          quantity: 1,
+        },
+      ],
+      mode: 'subscription',
+      success_url: `${appBaseUrl.value()}/upgrade-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appBaseUrl.value()}/upgrade-cancelled`,
+      metadata: {
+        userId: userId,
+        upgradeType: 'PRO'
+      },
+      // Don't set customer_email here - let Stripe handle it
+    });
+
+    logger.info('Stripe checkout session created successfully:', session.id);
+    
+    response.status(200).json({
+      success: true,
+      checkoutSession: {
+        id: session.id,
+        url: session.url,
+        amount: session.amount_total || 2900,
+        currency: session.currency || 'usd'
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error creating Stripe checkout session:', error);
+    if (error instanceof Error && error.message.includes('authorization')) {
+      response.status(401).json({ error: error.message });
+    } else {
+      response.status(500).json({ error: 'Failed to create checkout session' });
+    }
+  }
+});
+
+// Stripe Webhook Handler - Processes successful payments
+export const stripeWebhook = onRequest({
+  maxInstances: 5,
+  memory: '256MiB',
+  timeoutSeconds: 30
+}, async (request, response) => {
+  try {
+    // Verify Stripe webhook signature for security
+    const signature = request.headers['stripe-signature'] as string;
+    if (!signature) {
+      response.status(400).send('No signature provided');
+      return;
+    }
+
+    const stripe = new Stripe(stripeSecretKey.value(), {
+      apiVersion: '2025-07-30.basil',
+    });
+
+    let event: Stripe.Event;
+    try {
+      event = stripe.webhooks.constructEvent(
+        request.rawBody || request.body,
+        signature,
+        stripeWebhookSecret.value()
+      );
+    } catch (err) {
+      logger.error('Webhook signature verification failed:', err);
+      response.status(400).send('Invalid signature');
+      return;
+    }
+
+    logger.info('Stripe webhook received:', event.type);
+
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const userId = session.metadata?.userId;
+      
+      if (!userId) {
+        logger.error('No userId in session metadata');
+        response.status(400).send('Missing userId in metadata');
+        return;
+      }
+
+      logger.info('Payment completed for user:', userId);
+      
+      // Update user to PRO status and set custom claims
+      try {
+        // Update Firestore user document
+        await db.collection('users').doc(userId).update({
+          proStatus: 'active',
+          updatedAt: new Date()
+        });
+
+        // Set custom claims for role-based access
+        await getAuth().setCustomUserClaims(userId, {
+          role: 'PRO',
+          proId: userId
+        });
+
+        // Create team document
+        await db.collection('teams').doc(userId).set({
+          proId: userId,
+          name: 'My Team',
+          membersCount: { staff: 0, athlete: 0 },
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+
+        logger.info('User successfully upgraded to PRO:', userId);
+      } catch (dbError) {
+        logger.error('Failed to update user data:', dbError);
+        // Don't fail the webhook - we can retry later
+      }
+    }
+
+    response.status(200).send('Webhook processed');
+    
+  } catch (error) {
+    logger.error('Error processing Stripe webhook:', error);
+    response.status(400).send('Webhook processing failed');
+  }
+});
+
+// Firebase Auth trigger - Creates user document when new user signs up
+export const onUserCreate = onRequest({
+  maxInstances: 5,
+  memory: '256MiB',
+  timeoutSeconds: 30
+}, async (request, response) => {
+  try {
+    // This function will be triggered by Firebase Auth
+    const { uid, email, displayName } = request.body;
+    
+    if (!uid) {
+      response.status(400).send('No user ID provided');
+      return;
+    }
+
+    // Create user document in Firestore
+    await db.collection('users').doc(uid).set({
+      uid: uid,
+      email: email || '',
+      displayName: displayName || '',
+      role: 'ATHLETE', // Default role
+      proStatus: 'inactive', // Default status
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    logger.info('User document created for:', uid);
+    response.status(200).send('User created successfully');
+    
+  } catch (error) {
+    logger.error('Error creating user document:', error);
+    response.status(500).send('Failed to create user');
+  }
+});
+
+// Invite validation function - Validates invite links and checks seat availability
+export const validateInvite = onRequest({
+  cors: true,
+  maxInstances: 5,
+  memory: '256MiB',
+  timeoutSeconds: 30
+}, async (request, response) => {
+  // Handle CORS preflight
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set('Access-Control-Allow-Methods', 'GET, POST');
+  response.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  if (request.method === 'OPTIONS') {
+    response.status(204).send('');
+    return;
+  }
+
+  try {
+    const { proId, role } = request.body;
+    
+    if (!proId || !role) {
+      response.status(400).json({ error: 'Missing proId or role' });
+      return;
+    }
+
+    const validation = await validateInviteAndSeats(proId, role);
+    
+    if (validation.valid) {
+      response.status(200).json({ valid: true });
+    } else {
+      response.status(400).json({ 
+        valid: false, 
+        error: validation.message 
+      });
+    }
+    
+  } catch (error) {
+    logger.error('Error validating invite:', error);
+    response.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// export const helloWorld = onRequest((request, response) => {
+//   logger.info("Hello logs!", {structuredData: true});
+//   response.send("Hello from Firebase!");
+// });

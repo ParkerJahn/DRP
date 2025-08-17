@@ -1,0 +1,55 @@
+img {
+    transition: all 0.3s ease-in-out;
+}
+
+/* Animated line styles */
+.animated-line {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    width: 100%; /* Fixed width for shorter line */
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6, #06b6d4, #3b82f6);
+    background-size: 200% 100%;
+    animation: Glow 10s ease-in-out infinite; /* Increased from 3s to 6s */
+    border-radius: 1px;
+    box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+}
+
+.dark .animated-line {
+    background: linear-gradient(90deg, #60a5fa, #a78bfa, #22d3ee, #60a5fa);
+    background-size: 200% 100%;
+    box-shadow: 0 0 15px rgba(96, 165, 250, 0.6);
+}
+
+@keyframes Glow {
+ 
+    100% {
+        background-position: 100% 0;
+        opacity: 1;
+    }
+}
+
+/* Animated border styles for cards */
+.rotating-border {
+    position: absolute;
+    inset: -3px;
+    background: linear-gradient(45deg, #3b82f6, #8b5cf6, #06b6d4, #10b981, #f59e0b, #ef4444, #ec4899, #3b82f6);
+    background-size: 400% 400%;
+    border-radius: 15px;
+    animation: borderRotate 8s ease-in-out infinite;
+    z-index: -1;
+    opacity: 0.9;
+}
+
+.dark .rotating-border {
+    background: linear-gradient(45deg, #60a5fa, #a78bfa, #22d3ee, #34d399, #fbbf24, #f87171, #f472b6, #60a5fa);
+    background-size: 400% 400%;
+}
+
+@keyframes borderRotate {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+

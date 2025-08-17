@@ -1,0 +1,120 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+    
+    function uid() { 
+      return request.auth.uid; 
+    }
+    
+    function role() { 
+      return request.auth.token.role; 
+    }
+    
+    function proId() { 
+      return request.auth.token.proId; 
+    }
+    
+    function isPro() { 
+      return role() == 'PRO'; 
+    }
+    
+    function isStaff() { 
+      return role() == 'STAFF'; 
+    }
+    
+    function isAthlete() { 
+      return role() == 'ATHLETE'; 
+    }
+    
+    function isProOrStaff() { 
+      return isPro() || isStaff(); 
+    }
+    
+    function isOwnPro() { 
+      return isPro() && proId() == uid(); 
+    }
+    
+    function isTeamMember() { 
+      return isSignedIn() && proId() != null; 
+    }
+
+    // Users collection - role-based access
+    match /users/{userId} {
+      allow read: if isSignedIn() && (
+        userId == uid() || // can read own profile (basic self-access)
+        (isPro() && proId() != null && userId in get(/databases/$(database)/documents/teams/$(proId())).data.members) // PRO can read team members
+      );
+      allow update: if isSignedIn() && userId == uid() && (
+        // only allow updating safe fields
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['displayName', 'photoURL', 'phoneNumber'])
+      );
+      allow create, delete: if false; // only created by Functions
+    }
+
+    // Teams collection - visible to team members only
+    match /teams/{teamProId} {
+      allow read: if isTeamMember() && teamProId == proId();
+      allow write: if isOwnPro() && teamProId == uid();
+    }
+
+    // Invites collection - opaque to clients
+    match /invites/{inviteId} {
+      allow read: if false; // completely opaque
+      allow write: if false; // only managed by Functions
+    }
+
+    // Chats collection - team-based access
+    match /chats/{chatId} {
+      allow read: if isTeamMember() && uid() in resource.data.members;
+      allow create: if isProOrStaff() && proId() == request.resource.data.proId;
+      allow update, delete: if isProOrStaff() && proId() == resource.data.proId;
+    }
+
+    // Messages subcollection - immutable once created
+    match /chats/{chatId}/messages/{messageId} {
+      allow read: if isTeamMember() && 
+        uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
+      allow create: if isTeamMember() && 
+        uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
+      allow update, delete: if false; // immutable
+    }
+
+    // Events collection - role-based access
+    match /events/{eventId} {
+      allow read: if isTeamMember() && (
+        proId() == resource.data.proId || // PRO/Staff can read all team events
+        (isAthlete() && uid() in resource.data.attendees) // Athletes only see events they're in
+      );
+      allow create, update, delete: if isProOrStaff() && proId() == request.resource.data.proId;
+    }
+
+    // Payments collection - summary only, no client writes
+    match /payments/{paymentId} {
+      allow read: if isTeamMember() && (
+        (isPro() && proId() == resource.data.proId) || // PRO sees all payments
+        (isAthlete() && resource.data.payerUid == uid()) // Athletes see their own payments
+      );
+      allow write: if false; // only via Functions/webhooks
+    }
+
+    // Programs collection - SWEATsheet access
+    match /programs/{programId} {
+      allow read: if isTeamMember() && (
+        proId() == resource.data.proId || // PRO/Staff can read all team programs
+        (isAthlete() && resource.data.athleteUid == uid()) // Athletes see their own programs
+      );
+      allow create, update, delete: if isProOrStaff() && proId() == request.resource.data.proId;
+    }
+
+    // Deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

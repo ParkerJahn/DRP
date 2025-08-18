@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { useCustomClaims } from '../hooks/useCustomClaims';
 
 import ProUpgrade from './ProUpgrade';
 // Temporarily disabled Firestore imports due to permission errors
@@ -17,6 +18,7 @@ import ProUpgrade from './ProUpgrade';
 
 export const Dashboard: React.FC = () => {
   const { user, role, proStatus, proId, signOut, loading } = useAuth();
+  const { refreshCustomClaims, isRefreshing } = useCustomClaims();
   const [loadingStats, setLoadingStats] = useState(false);
   const [stats, setStats] = useState({
     teamMembers: 0,
@@ -159,6 +161,30 @@ export const Dashboard: React.FC = () => {
         <p className="text-gray-600">
           Role: {role} {proStatus && `(${proStatus})`}
         </p>
+        
+        {/* Custom Claims Refresh Button */}
+        <div className="mt-4 pt-4 border-t border-gray-200">
+          <button
+            onClick={refreshCustomClaims}
+            disabled={isRefreshing}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isRefreshing ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Refreshing Claims...
+              </>
+            ) : (
+              '🔄 Refresh Custom Claims'
+            )}
+          </button>
+          <p className="mt-2 text-sm text-gray-500">
+            Click this button if you're experiencing permission issues. This will refresh your authentication tokens.
+          </p>
+        </div>
       </div>
 
       {/* Role-specific content */}

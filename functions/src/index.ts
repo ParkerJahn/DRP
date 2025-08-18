@@ -17,6 +17,8 @@ import {getFirestore} from "firebase-admin/firestore";
 import Stripe from 'stripe';
 import {defineString} from "firebase-functions/params";
 
+
+
 // Initialize Firebase Admin
 initializeApp();
 
@@ -429,3 +431,117 @@ export const redeemInvite = onRequest({
 //   logger.info("Hello logs!", {structuredData: true});
 //   response.send("Hello from Firebase!");
 // });
+
+// Custom Claims Functions - Using onRequest pattern to match existing code
+export const setCustomClaims = onRequest({
+  maxInstances: 5,
+  memory: '256MiB',
+  timeoutSeconds: 30
+}, async (request, response) => {
+  try {
+    const { uid, role, proId } = request.body;
+    
+    if (!uid) {
+      response.status(400).json({ error: 'No user ID provided' });
+      return;
+    }
+
+    logger.info(`Setting custom claims for user: ${uid}`);
+    
+    // Set custom claims
+    const customClaims = {
+      role: role || 'ATHLETE',
+      proId: proId || uid,
+      email: request.body.email,
+      emailVerified: request.body.emailVerified || false
+    };
+    
+    await getAuth().setCustomUserClaims(uid, customClaims);
+    
+    logger.info(`Successfully set custom claims for ${uid}:`, customClaims);
+    
+    // Update the user document with the custom claims info
+    await db.collection('users').doc(uid).update({
+      customClaimsSet: true,
+      customClaimsSetAt: new Date()
+    });
+    
+    response.status(200).json({ success: true, customClaims });
+    
+  } catch (error) {
+    logger.error('Error setting custom claims:', error);
+    response.status(500).json({ error: 'Failed to set custom claims' });
+  }
+});
+
+export const refreshCustomClaims = onRequest({
+  cors: true,
+  maxInstances: 5,
+  memory: '256MiB',
+  timeoutSeconds: 30
+}, async (request, response) => {
+  // Handle CORS preflight
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set('Access-Control-Allow-Methods', 'GET, POST');
+  response.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  if (request.method === 'OPTIONS') {
+    response.status(204).send('');
+    return;
+  }
+
+  try {
+    // Verify user is authenticated
+    const authHeader = request.headers.authorization || '';
+    const userId = await verifyFirebaseToken(authHeader);
+    
+    logger.info(`Refreshing custom claims for user: ${userId}`);
+    
+    // Get user data from Firestore
+    const userDoc = await db.collection('users').doc(userId).get();
+    
+    if (!userDoc.exists) {
+      response.status(404).json({ error: 'User document not found' });
+      return;
+    }
+    
+    const userData = userDoc.data();
+    if (!userData) {
+      response.status(404).json({ error: 'User data not found' });
+      return;
+    }
+    
+    const role = userData.role || 'ATHLETE';
+    const proId = userData.proId || userId;
+    
+    // Set custom claims
+    const customClaims = {
+      role: role,
+      proId: proId,
+      email: userData.email,
+      emailVerified: userData.emailVerified || false
+    };
+    
+    await getAuth().setCustomUserClaims(userId, customClaims);
+    
+    logger.info(`Successfully refreshed custom claims for ${userId}:`, customClaims);
+    
+    // Update the user document
+    await db.collection('users').doc(userId).update({
+      customClaimsSet: true,
+      customClaimsSetAt: new Date(),
+      lastCustomClaimsRefresh: new Date()
+    });
+    
+    response.status(200).json({ success: true, customClaims });
+    
+  } catch (error) {
+    logger.error('Error refreshing custom claims:', error);
+    if (error instanceof Error && error.message.includes('authorization')) {
+      response.status(401).json({ error: error.message });
+    } else {
+      response.status(500).json({ error: 'Failed to refresh custom claims' });
+    }
+  }
+});
+

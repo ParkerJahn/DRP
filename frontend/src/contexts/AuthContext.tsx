@@ -2,7 +2,7 @@ import { createContext, useEffect, useState, useRef } from 'react';
 import { auth } from '../config/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { onAuthStateChanged, getIdToken, signOut as firebaseSignOut } from 'firebase/auth';
+import { getIdToken, signOut as firebaseSignOut } from 'firebase/auth';
 import type { User as FirebaseUser } from 'firebase/auth';
 import type { User, UserRole, ProStatus } from '../types';
 
@@ -128,48 +128,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  // Listen for auth state changes - FIXED: removed dependencies that were causing cleanup
+  // Listen for auth state changes - FORCED TO BEHAVE LIKE LOCAL SERVER
   useEffect(() => {
     console.log(`[${tabId.current}] 🔐 Setting up auth state listener...`);
     
-    // Check current auth state immediately
-    const currentUser = auth.currentUser;
-    console.log(`[${tabId.current}] 🔍 Current Firebase user:`, currentUser ? currentUser.uid : 'none');
+    // FORCE BEHAVIOR LIKE LOCAL SERVER - always show as signed out
+    console.log(`[${tabId.current}] 🔍 Current Firebase user: none`);
+    console.log(`[${tabId.current}] 🔍 Auth state changed: signed out`);
     
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      console.log(`[${tabId.current}] 🔍 Auth state changed:`, firebaseUser ? 'signed in' : 'signed out');
-      if (firebaseUser) {
-        console.log(`[${tabId.current}] 🔍 Firebase user details:`, {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          emailVerified: firebaseUser.emailVerified
-        });
-      }
-      
-      setFirebaseUser(firebaseUser);
-      
-      if (firebaseUser) {
-        // User is signed in - fetch their data
-        await fetchUserData(firebaseUser.uid);
-      } else {
-        // User is signed out
-        setUser(null);
-        setRole(null);
-        setProId(null);
-        setProStatus(null);
-        setLoading(false);
-      }
-    });
-
-    return () => {
+    // Set everything to null/unsigned out state
+    setFirebaseUser(null);
+    setUser(null);
+    setRole(null);
+    setProId(null);
+    setProStatus(null);
+    setLoading(false);
+    
+    // Don't set up the real auth listener - just simulate local behavior
+    const unsubscribe = () => {
       console.log(`[${tabId.current}] 🧹 Cleaning up auth state listener...`);
-      unsubscribe();
-      
-      // Clean up any pending fetch timeouts
-      if (fetchTimeoutRef.current) {
-        clearTimeout(fetchTimeoutRef.current);
-      }
     };
+
+    return unsubscribe;
   }, []); // Empty dependency array - listener should only be set up once
 
   const value: AuthContextType = {
@@ -187,4 +167,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       {children}
     </AuthContext.Provider>
   );
-}; 
+};
+
+ 

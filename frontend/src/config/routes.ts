@@ -16,6 +16,7 @@ export const ROUTES = {
   LANDING: '/',
   PRICING: '/pricing',
   ABOUT: '/about',
+  FEATURES: '/features',
   CONTACT: '/contact',
   
   // Auth routes (only accessible when NOT authenticated)
@@ -61,6 +62,14 @@ export const ROUTE_CONFIG: Record<string, RouteConfig> = {
     path: ROUTES.ABOUT,
     component: 'About',
     title: 'About',
+    requiresAuth: false,
+    isPublic: true,
+  },
+  
+  [ROUTES.FEATURES]: {
+    path: ROUTES.FEATURES,
+    component: 'Features',
+    title: 'Features',
     requiresAuth: false,
     isPublic: true,
   },

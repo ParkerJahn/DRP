@@ -135,7 +135,20 @@ service cloud.firestore {
       );
       allow create, update, delete: if isSignedIn() && (
         (isProOrStaff() && proId() == request.resource.data.proId) || // Team members can manage programs
-        (isPro() && request.resource.data.proId == uid()) // PRO can manage their team programs
+        (isPro() && resource.data.proId == uid()) // PRO can manage their team programs
+      );
+    }
+
+    // Exercises collection - exercise library access
+    match /exercises/{exerciseId} {
+      allow read: if isSignedIn(); // Allow all authenticated users to read exercises
+      allow create: if isSignedIn() && (
+        (isProOrStaff() && proId() == request.resource.data.proId) || // Team members can create exercises
+        (isPro() && request.resource.data.createdBy == uid()) // PRO can create exercises for their team
+      );
+      allow update, delete: if isSignedIn() && (
+        (isProOrStaff() && proId() == resource.data.proId) || // Team members can manage team exercises
+        (isPro() && resource.data.createdBy == uid()) // PRO can manage exercises they created
       );
     }
 

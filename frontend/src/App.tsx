@@ -12,6 +12,11 @@ import Contact from './pages/Contact';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Dashboard } from './components/Dashboard';
 import TeamManagement from './components/TeamManagement';
+import Profile from './pages/Profile';
+import Messages from './pages/Messages';
+import Calendar from './pages/Calendar';
+import Programs from './pages/Programs';
+import Payments from './pages/Payments';
 import { ROUTES } from './config/routes';
 import darkLogo from '/darkmodelogo.png';
 
@@ -54,27 +59,25 @@ function AppContent() {
     }
 
     // Show main app
-    console.log('Rendering authenticated app, role:', role, 'user:', user, 'current pathname:', window.location.pathname);
     return (
       <AppShell>
         <Routes>
           <Route path="/" element={<Navigate to={ROUTES.DASHBOARD} replace />} />
           <Route path="/app" element={<Navigate to={ROUTES.DASHBOARD} replace />} />
           <Route path="/app/dashboard" element={<Dashboard />} />
-          {role === 'PRO' && (
-            <Route path="/app/team" element={
-              (() => {
-                console.log('Team route matched and rendering TeamManagement');
-                return <TeamManagement />;
-              })()
-            } />
+          <Route path="/app/profile" element={<Profile />} />
+          <Route path="/app/messages" element={<Messages />} />
+          <Route path="/app/calendar" element={<Calendar />} />
+          {(role === 'PRO' || role === 'ATHLETE') && (
+            <Route path="/app/programs" element={<Programs />} />
           )}
-          <Route path="*" element={
-            (() => {
-              console.log('Catch-all route matched, redirecting to dashboard from:', window.location.pathname);
-              return <Navigate to={ROUTES.DASHBOARD} replace />;
-            })()
-          } />
+          {role === 'PRO' && (
+            <Route path="/app/team" element={<TeamManagement />} />
+          )}
+          {(role === 'PRO' || role === 'ATHLETE') && (
+            <Route path="/app/payments" element={<Payments />} />
+          )}
+          <Route path="*" element={<Navigate to={ROUTES.DASHBOARD} replace />} />
         </Routes>
       </AppShell>
     );

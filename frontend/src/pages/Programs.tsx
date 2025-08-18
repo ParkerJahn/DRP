@@ -1,36 +1,39 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { 
-  getProgramsByPro, 
-  getProgramsByAthlete, 
-  createProgram, 
-  updateProgram, 
-  deleteProgram,
+  createProgram,
+  getProgramsByPro,
+  getProgramsByAthlete,
+  updateProgram,
   getExerciseCategories,
   createExerciseCategory,
   addExerciseToCategory,
   deleteExerciseFromCategory,
-  deleteExerciseCategory
+  deleteExerciseCategory,
+  type ExerciseCategory
 } from '../services/programs';
-import type { Program, ProgramStatus, UserRole, Phase, ExerciseCategory } from '../types';
+import type { Program, ProgramStatus, Phase } from '../types';
 
 const Programs: React.FC = () => {
   const { user } = useAuth();
+  const [newProgramTitle, setNewProgramTitle] = useState('');
+  const [newProgramType, setNewProgramType] = useState('Strength Training');
+  const [newProgramPhases, setNewProgramPhases] = useState(4);
+  const [isBuildingProgram, setIsBuildingProgram] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState('');
+  const [customizationNotes, setCustomizationNotes] = useState('');
+  const [isAssigningProgram, setIsAssigningProgram] = useState(false);
+  const [rowSelections, setRowSelections] = useState<{[key: string]: {category: string, exercise: string, sets: string, reps: {[key: number]: string}, weight: {[key: number]: string}}}>({});
+  const [currentPhase, setCurrentPhase] = useState(1);
+  const [filter, setFilter] = useState<ProgramStatus | 'all'>('all');
+  const [loading, setLoading] = useState(false);
   const [programs, setPrograms] = useState<Program[]>([]);
   const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
-  const [isCreatingProgram, setIsCreatingProgram] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<ProgramStatus | 'all'>('all');
-  const [currentPhase, setCurrentPhase] = useState(1);
-  const [viewMode, setViewMode] = useState<'grid' | 'detail' | 'assign' | 'exercise-library' | 'create-assign'>('grid');
-
-  // Exercise Library State (for PRO/STAFF)
   const [exerciseCategories, setExerciseCategories] = useState<ExerciseCategory[]>([]);
-
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryId, setNewCategoryId] = useState('');
-  const [rowSelections, setRowSelections] = useState<{[key: string]: {category: string, exercise: string, sets: string, reps: {[key: number]: string}, weight: {[key: number]: string}}}>({});
+  const [viewMode, setViewMode] = useState<'grid' | 'detail' | 'assign' | 'exercise-library' | 'create-assign'>('grid');
 
   // Mock data for development - in production this would come from Firestore
   const [mockAthletes] = useState([
@@ -40,14 +43,6 @@ const Programs: React.FC = () => {
   ]);
 
   const [selectedAthlete, setSelectedAthlete] = useState<string | null>(null);
-  const [newProgramTitle, setNewProgramTitle] = useState('');
-  const [newProgramType, setNewProgramType] = useState('Strength Training');
-  const [newProgramPhases, setNewProgramPhases] = useState(4);
-  const [isBuildingProgram, setIsBuildingProgram] = useState(false);
-  const [currentBuildingPhase, setCurrentBuildingPhase] = useState(1);
-  const [selectedTemplate, setSelectedTemplate] = useState('');
-  const [customizationNotes, setCustomizationNotes] = useState('');
-  const [isAssigningProgram, setIsAssigningProgram] = useState(false);
 
   // Load programs from Firestore
   const loadPrograms = async () => {
@@ -369,45 +364,7 @@ const Programs: React.FC = () => {
 
   const canCreateProgram = user?.role === 'PRO' || user?.role === 'STAFF';
   const canViewExerciseLibrary = user?.role === 'PRO' || user?.role === 'STAFF';
-  const canAssignProgram = user?.role === 'PRO';
 
-  const handleCreateProgram = async (athleteUid: string, programData: any) => {
-    if (!user || !user.proId) return;
-    
-    try {
-      setLoading(true);
-      
-      const newProgram = {
-        proId: user.proId,
-        athleteUid,
-        title: programData.title,
-        status: 'draft' as ProgramStatus,
-        phases: createMockPhases(),
-        createdBy: user.uid,
-      };
-      
-      const result = await createProgram(newProgram);
-      
-      if (result.success) {
-        // Reload programs to show the new one
-        await loadPrograms();
-        setViewMode('grid');
-        setSelectedAthlete('');
-      } else {
-        console.error('Error creating program:', result.error);
-        alert('Failed to create program. Please try again.');
-      }
-    } catch (error) {
-      console.error('Error creating program:', error);
-      alert('Failed to create program. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAssignProgram = () => {
-    setViewMode('assign');
-  };
 
   const handleProgramSelect = (program: Program) => {
     setSelectedProgram(program);
@@ -430,7 +387,9 @@ const Programs: React.FC = () => {
           proId: user?.proId || user?.uid || ''
         });
         if (result.success) {
-          setExerciseCategories(prev => [...prev, result.category]);
+          if (result.category) {
+            setExerciseCategories(prev => [...prev, result.category]);
+          }
           setNewCategoryName('');
           setNewCategoryId('');
           setIsAddingCategory(false);
@@ -517,7 +476,7 @@ const Programs: React.FC = () => {
     
     const completedExercises = program.phases.reduce((total, phase) => 
       total + phase.blocks.reduce((blockTotal, block) => 
-        blockTotal + block.exercises.filter(ex => ex.completed).length, 0), 0);
+        blockTotal + block.exercises.filter(ex => (ex as any).completed).length, 0), 0);
     
     return totalExercises > 0 ? Math.round((completedExercises / totalExercises) * 100) : 0;
   };

@@ -2,16 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import type { Chat, Message } from '../types';
 
-// Mock timestamp for development
-const createMockTimestamp = (date: Date) => ({
-  toDate: () => date,
-  toMillis: () => date.getTime(),
-  seconds: Math.floor(date.getTime() / 1000),
-  nanoseconds: 0,
-  isEqual: () => false,
-  toJSON: () => ({ seconds: Math.floor(date.getTime() / 1000), nanoseconds: 0, type: 'timestamp' })
-});
-
 const Messages: React.FC = () => {
   const { user } = useAuth();
   const [chats, setChats] = useState<Chat[]>([]);

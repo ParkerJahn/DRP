@@ -1,5 +1,6 @@
 import React from 'react';
 import { ROUTES } from '../config/routes';
+import darkLogo from '/darkmodelogo.png';
 
 const About: React.FC = () => {
   return (
@@ -15,7 +16,7 @@ const About: React.FC = () => {
         <div className="absolute left-1/2 transform -translate-x-1/2 flex flex-col items-center">
           <img 
             className="w-[120px] h-[72px] transition-opacity duration-300 mb-4" 
-            src="/public/darkmodelogo.png" 
+            src={darkLogo} 
             alt="DRP Workshop Logo"
           />
           <div className="animated-line"></div>

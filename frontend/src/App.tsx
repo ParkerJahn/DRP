@@ -13,6 +13,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Dashboard } from './components/Dashboard';
 import TeamManagement from './components/TeamManagement';
 import { ROUTES } from './config/routes';
+import darkLogo from '/darkmodelogo.png';
 
 // Main App Component
 function App() {
@@ -53,6 +54,7 @@ function AppContent() {
     }
 
     // Show main app
+    console.log('Rendering authenticated app, role:', role, 'user:', user, 'current pathname:', window.location.pathname);
     return (
       <AppShell>
         <Routes>
@@ -60,9 +62,19 @@ function AppContent() {
           <Route path="/app" element={<Navigate to={ROUTES.DASHBOARD} replace />} />
           <Route path="/app/dashboard" element={<Dashboard />} />
           {role === 'PRO' && (
-            <Route path="/app/team" element={<TeamManagement />} />
+            <Route path="/app/team" element={
+              (() => {
+                console.log('Team route matched and rendering TeamManagement');
+                return <TeamManagement />;
+              })()
+            } />
           )}
-          <Route path="*" element={<Navigate to={ROUTES.DASHBOARD} replace />} />
+          <Route path="*" element={
+            (() => {
+              console.log('Catch-all route matched, redirecting to dashboard from:', window.location.pathname);
+              return <Navigate to={ROUTES.DASHBOARD} replace />;
+            })()
+          } />
         </Routes>
       </AppShell>
     );
@@ -85,7 +97,7 @@ function AppContent() {
             <div className="absolute left-1/2 transform -translate-x-1/2 flex flex-col items-center">
               <img 
                 className="w-[120px] h-[72px] transition-opacity duration-300 mb-4" 
-                src="/public/darkmodelogo.png" 
+                src={darkLogo} 
                 alt="DRP Workshop Logo"
               />
               <div className="animated-line"></div>
@@ -98,8 +110,14 @@ function AppContent() {
             </div>
             
             {/* Right: Get Started Button */}
-            <div className="flex justify-end">
-              <a href={ROUTES.AUTH} className="px-4 py-2 mt-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-200 font-medium text-sm">Get Started</a>
+            <div className="flex justify-end relative z-10">
+              <a 
+                href={ROUTES.AUTH} 
+                onClick={() => console.log('Get Started button clicked!')}
+                className="px-4 py-2 mt-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-200 font-medium text-sm relative z-20 cursor-pointer"
+              >
+                Get Started
+              </a>
             </div>
           </nav>
 
@@ -124,7 +142,8 @@ function AppContent() {
             <div className="space-x-6 mb-16">
               <a
                 href={ROUTES.AUTH}
-                className="inline-block bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-8 py-4 rounded-lg font-semibold text-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
+                onClick={() => console.log('Hero Get Started button clicked!')}
+                className="inline-block bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-8 py-4 rounded-lg font-semibold text-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl cursor-pointer"
               >
                 Start Free Trial
               </a>
@@ -238,8 +257,20 @@ function AppContent() {
       <Route path={ROUTES.FEATURES} element={<Features />} />
       <Route path={ROUTES.PRICING} element={<Pricing />} />
       <Route path={ROUTES.CONTACT} element={<Contact />} />
-      <Route path={ROUTES.AUTH} element={<Auth onAuthSuccess={() => {}} />} />
-      <Route path={ROUTES.REGISTER} element={<Auth onAuthSuccess={() => {}} />} />
+      <Route path={ROUTES.AUTH} element={
+        <Auth onAuthSuccess={() => {
+          // After successful auth, redirect to dashboard
+          // The AuthContext will handle the user state update
+          window.location.href = ROUTES.DASHBOARD;
+        }} />
+      } />
+      <Route path={ROUTES.REGISTER} element={
+        <Auth onAuthSuccess={() => {
+          // After successful registration, redirect to dashboard
+          // The AuthContext will handle the user state update
+          window.location.href = ROUTES.DASHBOARD;
+        }} />
+      } />
       
       <Route path={ROUTES.BILLING_SUBSCRIBE} element={
         <Navigate to={ROUTES.AUTH} replace />

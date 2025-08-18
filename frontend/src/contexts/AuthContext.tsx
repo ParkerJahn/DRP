@@ -128,28 +128,32 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  // Listen for auth state changes - FORCED TO BEHAVE LIKE LOCAL SERVER
+  // Listen for auth state changes
   useEffect(() => {
     console.log(`[${tabId.current}] 🔐 Setting up auth state listener...`);
     
-    // FORCE BEHAVIOR LIKE LOCAL SERVER - always show as signed out
-    console.log(`[${tabId.current}] 🔍 Current Firebase user: none`);
-    console.log(`[${tabId.current}] 🔍 Auth state changed: signed out`);
-    
-    // Set everything to null/unsigned out state
-    setFirebaseUser(null);
-    setUser(null);
-    setRole(null);
-    setProId(null);
-    setProStatus(null);
-    setLoading(false);
-    
-    // Don't set up the real auth listener - just simulate local behavior
-    const unsubscribe = () => {
-      console.log(`[${tabId.current}] 🧹 Cleaning up auth state listener...`);
-    };
+    const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
+      console.log(`[${tabId.current}] 🔍 Current Firebase user:`, firebaseUser ? firebaseUser.uid : 'none');
+      
+      if (firebaseUser) {
+        console.log(`[${tabId.current}] 🔍 Auth state changed: signed in`);
+        setFirebaseUser(firebaseUser);
+        await fetchUserData(firebaseUser.uid);
+      } else {
+        console.log(`[${tabId.current}] 🔍 Auth state changed: signed out`);
+        setFirebaseUser(null);
+        setUser(null);
+        setRole(null);
+        setProId(null);
+        setProStatus(null);
+        setLoading(false);
+      }
+    });
 
-    return unsubscribe;
+    return () => {
+      console.log(`[${tabId.current}] 🧹 Cleaning up auth state listener...`);
+      unsubscribe();
+    };
   }, []); // Empty dependency array - listener should only be set up once
 
   const value: AuthContextType = {

@@ -15,15 +15,20 @@ export const SignIn = ({ onSwitchToRegister, onAuthSuccess }: { onSwitchToRegist
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('Form submitted, attempting sign in...');
     setError(null);
 
     try {
+      console.log('Calling signInWithEmailAndPassword...');
       await signInWithEmailAndPassword(auth, formData.email, formData.password);
+      console.log('Sign in successful, refreshing user...');
       
       await refreshUser();
+      console.log('User refreshed, calling onAuthSuccess...');
       
       // Call onAuthSuccess with user data
       onAuthSuccess({ email: formData.email });
+      console.log('onAuthSuccess called successfully');
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
       console.error('Sign in error:', error);
@@ -34,17 +39,23 @@ export const SignIn = ({ onSwitchToRegister, onAuthSuccess }: { onSwitchToRegist
   };
 
   const handleGoogleSignIn = async () => {
+    console.log('Google sign in initiated...');
     setLoading(true);
     setError(null);
 
     try {
+      console.log('Calling signInWithPopup...');
       const userCredential = await signInWithPopup(auth, googleProvider);
+      console.log('Google sign in successful, refreshing user...');
+      
       await refreshUser();
+      console.log('User refreshed, calling onAuthSuccess...');
       
       // Call onAuthSuccess with user data
       onAuthSuccess({
         email: userCredential.user.email
       });
+      console.log('onAuthSuccess called successfully');
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
       console.error('Google sign in error:', error);

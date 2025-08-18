@@ -1,6 +1,9 @@
 import './Header.css';
-import { useEffect, useRef, useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { useNavigate } from 'react-router-dom';
+import lightLogo from '/lightmodelogo.png';
+import darkLogo from '/darkmodelogo.png';
 import firebaseApi from '../api/firebase';
 import { ACCESS_TOKEN, REFRESH_TOKEN } from '../constants';
 
@@ -24,6 +27,7 @@ function Header() {
     const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
     const [isOpen, setIsOpen] = useState<boolean>(false); // Changed from isDrawerOpen
     const drawerRef = useRef<HTMLDivElement>(null);
+    const navigate = useNavigate();
 
     // Initialize theme from localStorage
     useEffect(() => {
@@ -90,18 +94,6 @@ function Header() {
         setIsDarkMode(newTheme);
         localStorage.setItem('theme', newTheme ? 'dark' : 'light');
         document.documentElement.classList.toggle('dark', newTheme);
-    };
-
-    // Simple navigation function
-    const navigateTo = (path: string) => {
-        // For now, just log the navigation
-        console.log('Navigating to:', path);
-        setIsOpen(false);
-        
-        // Dispatch navigation event for AppRouter to handle
-        window.dispatchEvent(new CustomEvent('navigate', { detail: { path } }));
-        
-        // TODO: Implement proper routing
     };
 
     // Simple icon component using emojis (no external dependencies)
@@ -178,12 +170,12 @@ function Header() {
                 {/* Logo */}
                 <img 
                     className="block dark:hidden w-[200px] h-[120px] transition-opacity duration-300" 
-                    src="/public/lightmodelogo.png" 
+                    src={lightLogo} 
                     alt="DRP Workshop Light Logo"
                 />
                 <img 
                     className="hidden dark:block w-[200px] h-[120px] transition-opacity duration-300" 
-                    src="/public/darkmodelogo.png" 
+                    src={darkLogo} 
                     alt="DRP Workshop Dark Logo"
                 />
 
@@ -258,7 +250,10 @@ function Header() {
                             {getNavigationItems().map((item, index) => (
                                 <button 
                                     key={index}
-                                    onClick={() => navigateTo(item.path)}
+                                    onClick={() => {
+                                        navigate(item.path);
+                                        setIsOpen(false);
+                                    }}
                                     className="w-full flex items-center gap-3 p-3 text-left hover:bg-neutral-300 dark:hover:bg-neutral-700 rounded transition-colors"
                                 >
                                     <Icon type={item.icon} />
@@ -270,7 +265,10 @@ function Header() {
                         {/* Footer Actions */}
                         <div className="p-4 border-t border-neutral-300 dark:border-neutral-600 space-y-2">
                             <button 
-                                onClick={() => navigateTo('/app/help')}
+                                onClick={() => {
+                                    navigate('/app/help');
+                                    setIsOpen(false);
+                                }}
                                 className="w-full flex items-center gap-3 p-3 text-left text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900 rounded transition-colors"
                             >
                                 <Icon type="help" />

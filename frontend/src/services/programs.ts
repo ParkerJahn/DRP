@@ -44,28 +44,29 @@ export const createExerciseCategory = async (categoryData: Omit<ExerciseCategory
   }
 };
 
-export const getExerciseCategories = async () => {
+export const getExerciseCategories = async (callerProId?: string) => {
   try {
-    console.log('Fetching exercise categories...');
     const categoriesRef = collection(db, 'exercises');
-    const querySnapshot = await getDocs(categoriesRef);
-    
-    console.log('Query snapshot size:', querySnapshot.size);
+    const qRef = callerProId ? query(categoriesRef, where('proId', '==', callerProId)) : categoriesRef;
+    const querySnapshot = await getDocs(qRef);
     
     const categories: ExerciseCategory[] = [];
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      console.log('Document data:', doc.id, data);
-      // Only include documents that have the required fields
-      if (data.name && data.exercises && Array.isArray(data.exercises)) {
-        categories.push({ 
-          id: doc.id, 
-          ...data 
-        } as ExerciseCategory);
+    querySnapshot.forEach((snap) => {
+      const raw = snap.data() as any;
+      if (typeof raw?.name === 'string' && Array.isArray(raw?.exercises)) {
+        const category: ExerciseCategory = {
+          id: snap.id,
+          name: raw.name,
+          exercises: raw.exercises,
+          createdBy: raw.createdBy,
+          proId: raw.proId,
+          createdAt: raw.createdAt,
+          updatedAt: raw.updatedAt,
+        };
+        categories.push(category);
       }
     });
     
-    console.log('Filtered categories:', categories);
     return { success: true, categories };
   } catch (error) {
     console.error('Error fetching exercise categories:', error);

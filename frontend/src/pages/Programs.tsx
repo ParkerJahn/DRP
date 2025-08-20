@@ -10,7 +10,8 @@ import {
   addExerciseToCategory,
   deleteExerciseFromCategory,
   deleteExerciseCategory,
-  type ExerciseCategory
+  type ExerciseCategory,
+  deleteProgram
 } from '../services/programs';
 import type { Program, ProgramStatus, Phase } from '../types';
 
@@ -35,14 +36,9 @@ const Programs: React.FC = () => {
   const [newCategoryId, setNewCategoryId] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'detail' | 'assign' | 'exercise-library' | 'create-assign'>('grid');
 
-  // Mock data for development - in production this would come from Firestore
-  const [mockAthletes] = useState([
-    { uid: 'athlete1', firstName: 'John', lastName: 'Doe', email: 'john@example.com' },
-    { uid: 'athlete2', firstName: 'Jane', lastName: 'Smith', email: 'jane@example.com' },
-    { uid: 'athlete3', firstName: 'Mike', lastName: 'Johnson', email: 'mike@example.com' }
-  ]);
-
+  // Athletes are loaded from Firestore
   const [selectedAthlete, setSelectedAthlete] = useState<string | null>(null);
+  const [athletes, setAthletes] = useState<{ uid: string; firstName: string; lastName: string; email: string }[]>([]);
 
   // Load programs from Firestore
   const loadPrograms = async () => {
@@ -78,7 +74,7 @@ const Programs: React.FC = () => {
   const loadExerciseCategories = async () => {
     if (!user || (user.role !== 'PRO' && user.role !== 'STAFF')) return;
     try {
-      const result = await getExerciseCategories();
+      const result = await getExerciseCategories(user.proId || user.uid);
       if (result.success) {
         setExerciseCategories(result.categories || []);
         
@@ -96,6 +92,26 @@ const Programs: React.FC = () => {
       }
     } catch (error) {
       console.error('Error loading exercise categories:', error);
+    }
+  };
+
+  // Load athletes for Create/Assign dropdown
+  const loadAthletes = async () => {
+    if (!user) return;
+    const proId = user.proId || user.uid;
+    try {
+      const { getUsersByRole } = await import('../services/firebase');
+      const res = await getUsersByRole(proId, 'ATHLETE');
+      if (res.success && Array.isArray(res.users)) {
+        setAthletes(res.users.map((u) => ({
+          uid: u.uid,
+          firstName: (u as any)?.firstName || u.displayName || 'Athlete',
+          lastName: (u as any)?.lastName || '',
+          email: u.email,
+        })));
+      }
+    } catch (e) {
+      console.error('Error loading athletes:', e);
     }
   };
 
@@ -155,7 +171,7 @@ const Programs: React.FC = () => {
       }
 
       // Reload categories after creating samples
-      const reloadResult = await getExerciseCategories();
+      const reloadResult = await getExerciseCategories(user.proId || user.uid);
       if (reloadResult.success) {
         setExerciseCategories(reloadResult.categories || []);
       }
@@ -253,7 +269,7 @@ const Programs: React.FC = () => {
         setIsAssigningProgram(false);
         
         // Show success message
-        alert(`Program "${templateProgram.title}" assigned successfully to ${mockAthletes.find(a => a.uid === selectedAthlete)?.firstName || 'athlete'}!`);
+        alert(`Program "${templateProgram.title}" assigned successfully to ${athletes.find(a => a.uid === selectedAthlete)?.firstName || 'athlete'}!`);
       } else {
         console.error('Error assigning program:', result.error);
         alert('Failed to assign program. Please try again.');
@@ -311,6 +327,7 @@ const Programs: React.FC = () => {
     if (user) {
       loadPrograms();
       loadExerciseCategories();
+      loadAthletes();
     }
   }, [user]);
 
@@ -491,7 +508,7 @@ const Programs: React.FC = () => {
       (exercise as any).completed = completed;
       
       // Update the program in Firestore
-      const result = await updateProgram(selectedProgram.athleteUid || '', {
+      const result = await updateProgram(selectedProgram.id || '', {
         phases: updatedProgram.phases
       });
       
@@ -535,7 +552,7 @@ const Programs: React.FC = () => {
       (exercise as any).weight = selections.weight;
       
       // Update the program in Firestore
-      const result = await updateProgram(selectedProgram.athleteUid || '', {
+      const result = await updateProgram(selectedProgram.id || '', {
         phases: updatedProgram.phases
       });
       
@@ -555,6 +572,31 @@ const Programs: React.FC = () => {
       console.error('Error updating exercise selections:', error);
       // Revert local state on error
       setSelectedProgram(selectedProgram);
+    }
+  };
+
+  const handleDeleteProgram = async (program: Program, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!program.id) {
+      alert('Unable to delete: missing program id.');
+      return;
+    }
+    const confirmed = window.confirm(`Are you sure you want to delete "${program.title}"? This cannot be undone.`);
+    if (!confirmed) return;
+    try {
+      const res = await deleteProgram(program.id);
+      if (res.success) {
+        setPrograms(prev => prev.filter(p => p.id !== program.id));
+        if (selectedProgram?.id === program.id) {
+          setSelectedProgram(null);
+        }
+      } else {
+        console.error('Error deleting program:', (res as any).error);
+        alert('Failed to delete program. Please try again.');
+      }
+    } catch (err) {
+      console.error('Error deleting program:', err);
+      alert('Failed to delete program. Please try again.');
     }
   };
 
@@ -970,7 +1012,7 @@ const Programs: React.FC = () => {
                 defaultValue=""
               >
                 <option value="" disabled>Select Athlete...</option>
-                {mockAthletes.map((athlete) => (
+                {athletes.map((athlete) => (
                   <option key={athlete.uid} value={athlete.uid}>
                     {athlete.firstName} {athlete.lastName}
                   </option>
@@ -1017,13 +1059,13 @@ const Programs: React.FC = () => {
             >
               <div className="flex justify-between items-start mb-4">
                 <h3 className="text-lg font-semibold">{program.title}</h3>
-                                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                   program.status === 'current' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
-                   program.status === 'archived' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
-                   'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                 }`}>
-                   {program.status}
-                 </span>
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                  program.status === 'current' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                  program.status === 'archived' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                  'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+                }`}>
+                  {program.status}
+                </span>
               </div>
               
               <div className="space-y-3">
@@ -1035,7 +1077,7 @@ const Programs: React.FC = () => {
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600 dark:text-gray-400">Assigned to:</span>
                   <span className="text-sm font-medium">
-                    {mockAthletes.find(a => a.uid === program.athleteUid)?.firstName || 'Unknown'}
+                    {athletes.find(a => a.uid === program.athleteUid)?.firstName || 'Unknown'}
                   </span>
                 </div>
                 
@@ -1051,6 +1093,16 @@ const Programs: React.FC = () => {
                     />
                   </div>
                 </div>
+
+                <div className="pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteProgram(program, e)}
+                    className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -1059,7 +1111,7 @@ const Programs: React.FC = () => {
   );
 
   const renderCreateAssignProgram = () => {
-    const selectedAthleteData = mockAthletes.find(a => a.uid === selectedAthlete);
+    const selectedAthleteData = athletes.find(a => a.uid === selectedAthlete);
     
     return (
       <div className="space-y-6">

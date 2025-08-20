@@ -141,7 +141,7 @@ service cloud.firestore {
 
     // Exercises collection - exercise library access
     match /exercises/{exerciseId} {
-      allow read: if isSignedIn(); // Allow all authenticated users to read exercises
+      allow read: if isSignedIn() && resource.data.proId == proId(); // Team-scoped reads only
       allow create: if isSignedIn() && (
         (isProOrStaff() && proId() == request.resource.data.proId) || // Team members can create exercises
         (isPro() && request.resource.data.createdBy == uid()) // PRO can create exercises for their team

@@ -139,6 +139,18 @@ service cloud.firestore {
       );
     }
 
+    // Program Templates collection - scoped to team
+    match /program_templates/{templateId} {
+      allow read: if isSignedIn() && (
+        (isTeamMember() && proId() == resource.data.proId) ||
+        (isPro() && resource.data.proId == uid())
+      );
+      allow create, update, delete: if isSignedIn() && (
+        (isProOrStaff() && proId() == request.resource.data.proId) ||
+        (isPro() && request.resource.data.proId == uid())
+      );
+    }
+
     // Exercises collection - exercise library access
     match /exercises/{exerciseId} {
       allow read: if isSignedIn() && resource.data.proId == proId(); // Team-scoped reads only

@@ -11,7 +11,10 @@ import {
   deleteExerciseFromCategory,
   deleteExerciseCategory,
   type ExerciseCategory,
-  deleteProgram
+  deleteProgram,
+  getProgramTemplatesByPro,
+  createProgramTemplate,
+  assignTemplateToAthlete
 } from '../services/programs';
 import type { Program, ProgramStatus, Phase } from '../types';
 
@@ -23,7 +26,7 @@ const Programs: React.FC = () => {
   const [isBuildingProgram, setIsBuildingProgram] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [customizationNotes, setCustomizationNotes] = useState('');
-  const [isAssigningProgram, setIsAssigningProgram] = useState(false);
+  const [isAssigningProgram] = useState(false);
   const [rowSelections, setRowSelections] = useState<{[key: string]: {category: string, exercise: string, sets: string, reps: {[key: number]: string}, weight: {[key: number]: string}}}>({});
   const [currentPhase, setCurrentPhase] = useState(1);
   const [filter, setFilter] = useState<ProgramStatus | 'all'>('all');
@@ -39,6 +42,7 @@ const Programs: React.FC = () => {
   // Athletes are loaded from Firestore
   const [selectedAthlete, setSelectedAthlete] = useState<string | null>(null);
   const [athletes, setAthletes] = useState<{ uid: string; firstName: string; lastName: string; email: string }[]>([]);
+  const [templates, setTemplates] = useState<{ id: string; title: string }[]>([]);
 
   // Load programs from Firestore
   const loadPrograms = async () => {
@@ -112,6 +116,20 @@ const Programs: React.FC = () => {
       }
     } catch (e) {
       console.error('Error loading athletes:', e);
+    }
+  };
+
+  // Load templates from Firestore on mount
+  const loadTemplates = async () => {
+    if (!user) return;
+    try {
+      const proId = user.proId || user.uid;
+      const res = await getProgramTemplatesByPro(proId);
+      if (res.success) {
+        setTemplates((res.templates || []).map((t: any) => ({ id: t.id, title: t.title })));
+      }
+    } catch (e) {
+      console.error('Error loading templates', e);
     }
   };
 
@@ -233,54 +251,7 @@ const Programs: React.FC = () => {
   };
 
   // Assign existing program function
-  const handleAssignExistingProgram = async () => {
-    if (!user || !selectedAthlete) {
-      alert('Please select an athlete first.');
-      return;
-    }
-    
-    if (!selectedTemplate) {
-      alert('Please select a program template.');
-      return;
-    }
-    
-    try {
-      setIsAssigningProgram(true);
-      
-      // Create program from template
-      const templateProgram = createProgramFromTemplate(selectedTemplate);
-      const newProgram = {
-        ...templateProgram,
-        proId: user.proId || user.uid,
-        athleteUid: selectedAthlete,
-        createdBy: user.uid,
-        customizationNotes: customizationNotes.trim() || undefined,
-      };
-      
-      const result = await createProgram(newProgram);
-      
-      if (result.success) {
-        // Reload programs to show the new one
-        await loadPrograms();
-        setViewMode('grid');
-        setSelectedAthlete(null);
-        setSelectedTemplate('');
-        setCustomizationNotes('');
-        setIsAssigningProgram(false);
-        
-        // Show success message
-        alert(`Program "${templateProgram.title}" assigned successfully to ${athletes.find(a => a.uid === selectedAthlete)?.firstName || 'athlete'}!`);
-      } else {
-        console.error('Error assigning program:', result.error);
-        alert('Failed to assign program. Please try again.');
-      }
-    } catch (error) {
-      console.error('Error assigning program:', error);
-      alert('Failed to assign program. Please try again.');
-    } finally {
-      setIsAssigningProgram(false);
-    }
-  };
+  
 
   // Create program from template
   const createProgramFromTemplate = (templateName: string) => {
@@ -328,8 +299,52 @@ const Programs: React.FC = () => {
       loadPrograms();
       loadExerciseCategories();
       loadAthletes();
+      loadTemplates();
     }
   }, [user]);
+
+  const handleSaveCurrentAsTemplate = async () => {
+    if (!user || !selectedProgram) return;
+    try {
+      const proId = user.proId || user.uid;
+      const res = await createProgramTemplate({
+        proId,
+        title: selectedProgram.title,
+        phases: selectedProgram.phases,
+        createdBy: user.uid,
+      } as any);
+      if (res.success) {
+        await loadTemplates();
+        alert('Saved as template successfully.');
+      } else {
+        alert('Failed to save template.');
+      }
+    } catch (e) {
+      console.error('Save template error', e);
+      alert('Failed to save template.');
+    }
+  };
+
+  const handleAssignTemplate = async () => {
+    if (!user || !selectedAthlete || !selectedTemplate) return;
+    try {
+      const proId = user.proId || user.uid;
+      const res = await assignTemplateToAthlete(selectedTemplate, proId, selectedAthlete, user.uid);
+      if (res.success) {
+        await loadPrograms();
+        setViewMode('grid');
+        setSelectedAthlete(null);
+        setSelectedTemplate('');
+        setCustomizationNotes('');
+        alert('Template assigned successfully.');
+      } else {
+        alert('Failed to assign template.');
+      }
+    } catch (e) {
+      console.error('Assign template error', e);
+      alert('Failed to assign template.');
+    }
+  };
 
   const createMockPhases = (): [Phase, Phase, Phase, Phase] => {
     const phaseNames = ['Phase 1', 'Phase 2', 'Phase 3', 'Phase 4'];
@@ -757,9 +772,18 @@ const Programs: React.FC = () => {
               Back to Programs
             </button>
             {canCreateProgram && (
-              <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-                Complete Phase
-              </button>
+              <>
+                <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                  Complete Phase
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveCurrentAsTemplate}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                >
+                  Save as Template
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -1239,10 +1263,9 @@ const Programs: React.FC = () => {
                   className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
                   <option value="">Choose a template...</option>
-                  <option value="Strength Training Program">Strength Training Program</option>
-                  <option value="Power Development Program">Power Development Program</option>
-                  <option value="Endurance Program">Endurance Program</option>
-                  <option value="Recovery Program">Recovery Program</option>
+                  {templates.map(t => (
+                    <option key={t.id} value={t.id}>{t.title}</option>
+                  ))}
                 </select>
               </div>
               
@@ -1251,10 +1274,10 @@ const Programs: React.FC = () => {
                 <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 border border-green-200 dark:border-green-800">
                   <h5 className="font-semibold text-green-800 dark:text-green-300 mb-2">Template Preview</h5>
                   <div className="text-sm text-green-700 dark:text-green-400 space-y-2">
-                    <div><strong>Program:</strong> {selectedTemplate}</div>
-                    <div><strong>Description:</strong> {createProgramFromTemplate(selectedTemplate).description}</div>
-                    <div><strong>Focus:</strong> {createProgramFromTemplate(selectedTemplate).focus}</div>
-                    <div><strong>Difficulty:</strong> {createProgramFromTemplate(selectedTemplate).difficulty}</div>
+                    <div><strong>Program:</strong> {templates.find(t => t.id === selectedTemplate)?.title || 'N/A'}</div>
+                    <div><strong>Description:</strong> {createProgramFromTemplate(templates.find(t => t.id === selectedTemplate)?.title || 'Strength Training Program').description}</div>
+                    <div><strong>Focus:</strong> {createProgramFromTemplate(templates.find(t => t.id === selectedTemplate)?.title || 'Strength Training Program').focus}</div>
+                    <div><strong>Difficulty:</strong> {createProgramFromTemplate(templates.find(t => t.id === selectedTemplate)?.title || 'Strength Training Program').difficulty}</div>
                     <div><strong>Structure:</strong> 4 Phases × 8 Blocks × 6 Exercises</div>
                     <div><strong>Total Workouts:</strong> 192 exercises</div>
                     <div><strong>Estimated Duration:</strong> 8-12 weeks</div>
@@ -1276,7 +1299,7 @@ const Programs: React.FC = () => {
               </div>
               
               <button 
-                onClick={handleAssignExistingProgram}
+                onClick={handleAssignTemplate}
                 disabled={!selectedTemplate || !selectedAthlete}
                 className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
               >

@@ -42,12 +42,29 @@ function AppContent() {
     );
   }
 
-  // Check if this is a join invite route
+  // Check if this is a join invite route - prioritize this even when user is authenticated
   const urlParams = new URLSearchParams(window.location.search);
   const tokenParam = urlParams.get('token');
   const isJoinRoute = window.location.pathname === ROUTES.JOIN_INVITE && tokenParam;
+  
+  // Also check if user should be on invite page (has no team but has token)
+  const shouldShowInvite = tokenParam && user && !user.proId;
+  
+  console.log('🔍 App routing debug:', {
+    pathname: window.location.pathname,
+    JOIN_INVITE: ROUTES.JOIN_INVITE,
+    tokenParam: !!tokenParam,
+    actualToken: tokenParam ? tokenParam.substring(0, 20) + '...' : 'none',
+    isJoinRoute,
+    shouldShowInvite,
+    user: !!user,
+    userRole: role,
+    userProId: user?.proId,
+    fullUrl: window.location.href
+  });
 
-  if (isJoinRoute) {
+  if (isJoinRoute || shouldShowInvite) {
+    console.log('✅ Showing JoinInvite component');
     return <JoinInvite />;
   }
 

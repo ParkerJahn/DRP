@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { db } from '../config/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
+import QRCode from 'qrcode';
 
 interface TeamMember {
   uid: string;
@@ -17,6 +18,11 @@ interface SeatLimits {
   athleteLimit: number;
 }
 
+interface InviteQRCode {
+  role: 'STAFF' | 'ATHLETE';
+  url: string;
+  qrCodeDataUrl: string;
+}
 
 
 function TeamManagement() {
@@ -25,8 +31,7 @@ function TeamManagement() {
   const [seatLimits, setSeatLimits] = useState<SeatLimits>({ staffLimit: 5, athleteLimit: 20 }); // Default limits
   const [loading, setLoading] = useState(true);
   const [creatingInvite, setCreatingInvite] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState<'STAFF' | 'ATHLETE'>('STAFF');
+  const [qrCodes, setQrCodes] = useState<InviteQRCode[]>([]);
 
   // Define loadTeamData function before using it in useEffect
   const loadTeamData = async () => {
@@ -133,14 +138,32 @@ function TeamManagement() {
     }
   };
 
-  const handleCreateInvite = async () => {
+  const handleCreateInvite = async (role: 'STAFF' | 'ATHLETE') => {
     try {
-      const invite = await createInvite(inviteRole, inviteEmail || undefined);
+      const invite = await createInvite(role, undefined);
       if (invite) {
+        // Generate QR code for the invite
+        const qrCodeDataUrl = await QRCode.toDataURL(invite.inviteUrl, {
+          width: 200,
+          margin: 2,
+          color: {
+            dark: '#000000',
+            light: '#FFFFFF'
+          }
+        });
+        
+        // Store the QR code
+        const newQRCode: InviteQRCode = {
+          role: role,
+          url: invite.inviteUrl,
+          qrCodeDataUrl
+        };
+        
+        setQrCodes(prev => [...prev, newQRCode]);
+        
         // Copy the invite URL to clipboard
         await copyToClipboard(invite.inviteUrl);
-        setInviteEmail('');
-        alert(`✅ ${inviteRole} invite created and copied to clipboard!`);
+        alert(`✅ ${role} invite created and copied to clipboard! QR code generated below.`);
         
         // Reload team data to show updated counts
         setTimeout(() => {
@@ -262,168 +285,219 @@ function TeamManagement() {
       </div>
 
       {/* Invite Links Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Create New Invite */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Staff Quick Invite Card */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            🚀 Create New Invite
+            👥 Staff Invites
           </h3>
           
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Role
-              </label>
-              <select
-                value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value as 'STAFF' | 'ATHLETE')}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              >
-                <option value="STAFF">👥 Staff Member</option>
-                <option value="ATHLETE">💪 Athlete</option>
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Email (Optional)
-              </label>
-              <input
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="user@example.com"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              />
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Leave blank for open invites, or specify to restrict to a specific email
-              </p>
+            <div className="text-center mb-4">
+              <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                {getCurrentCount('STAFF')}/{seatLimits.staffLimit}
+              </div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                Staff Members
+              </div>
             </div>
             
             <button
-              onClick={handleCreateInvite}
-              disabled={creatingInvite || isLimitReached(inviteRole)}
-              className={`w-full px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                isLimitReached(inviteRole)
+              onClick={() => handleCreateInvite('STAFF')}
+              disabled={creatingInvite || isLimitReached('STAFF')}
+              className={`w-full px-4 py-3 text-sm font-medium rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                isLimitReached('STAFF')
                   ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                  : creatingInvite
-                  ? 'bg-indigo-400 dark:bg-indigo-500 text-white cursor-wait'
-                  : 'bg-indigo-600 hover:bg-indigo-700 text-white focus:ring-indigo-500'
+                  : 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-500'
               }`}
             >
-              {creatingInvite ? 'Creating...' : isLimitReached(inviteRole) ? '❌ Limit Reached' : `Create ${inviteRole} Invite`}
+              {isLimitReached('STAFF') ? 'Limit Reached' : 'Quick Invite Staff'}
             </button>
             
-            {isLimitReached(inviteRole) && (
-              <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-3 rounded-md">
-                ⚠️ You've reached your {inviteRole} limit of {inviteRole === 'STAFF' ? seatLimits.staffLimit : seatLimits.athleteLimit}. Upgrade your plan for more seats.
+            {isLimitReached('STAFF') && (
+              <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-2 rounded-md text-center">
+                ⚠️ Staff limit reached
               </div>
             )}
           </div>
         </div>
 
-        {/* Quick Invite Buttons */}
+        {/* Athlete Quick Invite Card */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            ⚡ Quick Invites
+            💪 Athlete Invites
           </h3>
           
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-medium text-gray-900 dark:text-white">👥 Staff</div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">
-                  {getCurrentCount('STAFF')}/{seatLimits.staffLimit} used
-                </div>
+            <div className="text-center mb-4">
+              <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                {getCurrentCount('ATHLETE')}/{seatLimits.athleteLimit}
               </div>
-              <button
-                onClick={() => {
-                  setInviteRole('STAFF');
-                  setInviteEmail('');
-                  handleCreateInvite();
-                }}
-                disabled={creatingInvite || isLimitReached('STAFF')}
-                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                  isLimitReached('STAFF')
-                    ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                    : 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-500'
-                }`}
-              >
-                {isLimitReached('STAFF') ? 'Limit Reached' : 'Quick Invite'}
-              </button>
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                Athletes
+              </div>
             </div>
             
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-medium text-gray-900 dark:text-white">💪 Athlete</div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">
-                  {getCurrentCount('ATHLETE')}/{seatLimits.athleteLimit} used
-                </div>
+            <button
+              onClick={() => handleCreateInvite('ATHLETE')}
+              disabled={creatingInvite || isLimitReached('ATHLETE')}
+              className={`w-full px-4 py-3 text-sm font-medium rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                isLimitReached('ATHLETE')
+                  ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500'
+              }`}
+            >
+              {isLimitReached('ATHLETE') ? 'Limit Reached' : 'Quick Invite Athlete'}
+            </button>
+            
+            {isLimitReached('ATHLETE') && (
+              <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-2 rounded-md text-center">
+                ⚠️ Athlete limit reached
               </div>
-              <button
-                onClick={() => {
-                  setInviteRole('ATHLETE');
-                  setInviteEmail('');
-                  handleCreateInvite();
-                }}
-                disabled={creatingInvite || isLimitReached('ATHLETE')}
-                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                  isLimitReached('ATHLETE')
-                    ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                    : 'bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500'
-                }`}
-              >
-                {isLimitReached('ATHLETE') ? 'Limit Reached' : 'Quick Invite'}
-              </button>
-            </div>
+            )}
           </div>
+        </div>
+
+        {/* QR Codes Display */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            📱 QR Codes
+          </h3>
+          
+          {qrCodes.length === 0 ? (
+            <div className="text-center text-gray-500 dark:text-gray-400 py-8">
+              <div className="text-4xl mb-2">📱</div>
+              <p>Generate an invite to see the QR code here!</p>
+              <p className="text-sm mt-1">Perfect for sharing in person or on social media</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {qrCodes.map((qrCode, index) => (
+                <div key={index} className="border border-gray-200 dark:border-gray-600 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-2">
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                        qrCode.role === 'STAFF' 
+                          ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-200' 
+                          : 'bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200'
+                      }`}>
+                        {qrCode.role}
+                      </span>
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        {new Date().toLocaleDateString()}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => copyToClipboard(qrCode.url)}
+                      className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300"
+                    >
+                      Copy Link
+                    </button>
+                  </div>
+                  <div className="flex justify-center">
+                    <img 
+                      src={qrCode.qrCodeDataUrl} 
+                      alt={`QR Code for ${qrCode.role} invite`}
+                      className="w-32 h-32 border border-gray-200 dark:border-gray-600 rounded-lg"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-2">
+                    Scan with any QR code app
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Team Members List */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Current Team Members</h3>
+      {/* Team Members Lists */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Staff Members */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-green-50 dark:bg-green-900/20">
+            <h3 className="text-lg font-semibold text-green-900 dark:text-green-100 flex items-center">
+              👥 Staff Members ({getCurrentCount('STAFF')}/{seatLimits.staffLimit})
+            </h3>
+          </div>
+          
+          {getCurrentCount('STAFF') === 0 ? (
+            <div className="p-6 text-center text-gray-500 dark:text-gray-400">
+              <div className="text-4xl mb-2">👥</div>
+              <p>No staff members yet.</p>
+              <p className="text-sm mt-1">Use the Staff Invites card above to add team members</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-200 dark:divide-gray-700">
+              {teamMembers
+                .filter(member => member.role === 'STAFF')
+                .map((member) => (
+                  <div key={member.uid} className="px-6 py-4 flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-200">
+                        👥
+                      </div>
+                      <div>
+                        <div className="font-medium text-gray-900 dark:text-white">{member.displayName}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">{member.email}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-4">
+                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-200">
+                        STAFF
+                      </span>
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        Joined {member.joinedAt.toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
-        
-        {teamMembers.length === 0 ? (
-          <div className="p-6 text-center text-gray-500 dark:text-gray-400">
-            <div className="text-4xl mb-2">👥</div>
-            <p>No team members yet. Use the invite links above to start building your team!</p>
+
+        {/* Athletes */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-blue-900/20">
+            <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 flex items-center">
+              💪 Athletes ({getCurrentCount('ATHLETE')}/{seatLimits.athleteLimit})
+            </h3>
           </div>
-        ) : (
-          <div className="divide-y divide-gray-200 dark:divide-gray-700">
-            {teamMembers.map((member) => (
-              <div key={member.uid} className="px-6 py-4 flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                    member.role === 'STAFF' 
-                      ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-200' 
-                      : 'bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200'
-                  }`}>
-                    {member.role === 'STAFF' ? '👥' : '💪'}
+          
+          {getCurrentCount('ATHLETE') === 0 ? (
+            <div className="p-6 text-center text-gray-500 dark:text-gray-400">
+              <div className="text-4xl mb-2">💪</div>
+              <p>No athletes yet.</p>
+              <p className="text-sm mt-1">Use the Athlete Invites card above to add team members</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-200 dark:divide-gray-700">
+              {teamMembers
+                .filter(member => member.role === 'ATHLETE')
+                .map((member) => (
+                  <div key={member.uid} className="px-6 py-4 flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200">
+                        💪
+                      </div>
+                      <div>
+                        <div className="font-medium text-gray-900 dark:text-white">{member.displayName}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">{member.email}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-4">
+                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200">
+                        ATHLETE
+                      </span>
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        Joined {member.joinedAt.toLocaleDateString()}
+                    </span>
+                    </div>
                   </div>
-                  <div>
-                    <div className="font-medium text-gray-900 dark:text-white">{member.displayName}</div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">{member.email}</div>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                    member.role === 'STAFF' 
-                      ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-200' 
-                      : 'bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200'
-                  }`}>
-                    {member.role}
-                  </span>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
-                    Joined {member.joinedAt.toLocaleDateString()}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+                ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* How to Use */}

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
-import { auth } from '../config/firebase';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import type { AuthError } from 'firebase/auth';
+import { auth } from '../config/firebase';
+import { useAuth } from '../hooks/useAuth';
 import type { UserRole } from '../types';
 
 interface InviteData {
@@ -16,7 +17,7 @@ interface InviteData {
 const JoinInvite: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [inviteData, setInviteData] = useState<InviteData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -31,16 +32,26 @@ const JoinInvite: React.FC = () => {
   });
   const [submitting, setSubmitting] = useState(false);
   const [processingGoogleSignIn, setProcessingGoogleSignIn] = useState(false);
+  const [redeemingInvite, setRedeemingInvite] = useState(false);
+  
+  // Add state to prevent multiple useEffect triggers
+  const [hasAttemptedRedemption, setHasAttemptedRedemption] = useState(false);
 
   useEffect(() => {
+    console.log('🔍 JoinInvite useEffect - component mounted');
+    console.log('🔍 Current URL:', window.location.href);
+    console.log('🔍 Current pathname:', window.location.pathname);
+    console.log('🔍 Current search params:', window.location.search);
+    
     const token = searchParams.get('token');
     if (!token) {
+      console.log('❌ No invite token provided');
       setError('No invite token provided');
       setLoading(false);
       return;
     }
-
-    // Validate the invite token with the server
+    
+    console.log('✅ Token found in URL:', token.substring(0, 20) + '...');
     validateInviteToken(token);
   }, [searchParams]);
 
@@ -64,7 +75,12 @@ const JoinInvite: React.FC = () => {
         setInviteData(result.invite);
         setLoading(false);
       } else {
-        setError(result.error || 'Invalid invite');
+        // Check if this is a claimed invite and show special message
+        if (result.error === 'Invite has already been claimed') {
+          setError('This invite has already been used. Please open a new browser tab and sign in to your account to access the team.');
+        } else {
+          setError(result.error || 'Invalid invite');
+        }
         setLoading(false);
       }
     } catch (error) {
@@ -83,11 +99,50 @@ const JoinInvite: React.FC = () => {
 
   // Auto-redeem invite if user is already authenticated
   useEffect(() => {
-    if (user && inviteData && !loading) {
-      console.log('🔄 User already authenticated, auto-redeeming invite...');
-      redeemInviteForUser(user.uid, user.email || '', user.displayName || '');
+    // Prevent multiple triggers
+    if (hasAttemptedRedemption) {
+      console.log('⚠️ Auto-redemption already attempted, skipping...');
+      return;
     }
-  }, [user, inviteData, loading]);
+    
+    console.log('🔄 Auto-redemption useEffect triggered:', { 
+      user: !!user, 
+      inviteData: !!inviteData, 
+      loading, 
+      userUid: user?.uid,
+      userRole: user?.role,
+      userProId: user?.proId,
+      currentUrl: window.location.href
+    });
+    
+    if (user && inviteData && !loading && !redeemingInvite) {
+      console.log('🚀 Auto-redeeming invite for authenticated user:', {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        currentRole: user.role,
+        currentProId: user.proId
+      });
+      
+      // Only redeem if user isn't already on a team
+      if (!user.proId) {
+        // Validate that we have all required data before calling
+        if (user.uid && user.email && user.displayName) {
+          console.log('✅ User has no team and all data is valid, proceeding with auto-redemption');
+          setHasAttemptedRedemption(true); // Mark as attempted
+          redeemInviteForUser(user.uid, user.email, user.displayName);
+        } else {
+          console.log('⚠️ User data incomplete, skipping auto-redemption:', {
+            hasUid: !!user.uid,
+            hasEmail: !!user.email,
+            hasDisplayName: !!user.displayName
+          });
+        }
+      } else {
+        console.log('⚠️ User already has a team, skipping auto-redemption');
+      }
+    }
+  }, [user, inviteData, loading, redeemingInvite, hasAttemptedRedemption]);
 
   const handleFormChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -165,18 +220,53 @@ const JoinInvite: React.FC = () => {
 
         console.log('✅ New user account created successfully');
         
-        // Force refresh of auth state to get new custom claims
-        await newUser.getIdToken(true);
-        
-        // Navigate to dashboard
-        navigate('/app/dashboard');
+        // Now redeem the invite for the new user
+        await redeemInviteForUser(newUser.uid, formData.email, `${formData.firstName} ${formData.lastName}`);
       } else {
         // Sign in existing account
-        const userCredential = await signInWithEmailAndPassword(auth, formData.email, formData.password);
-        const existingUser = userCredential.user;
+        try {
+          const userCredential = await signInWithEmailAndPassword(auth, formData.email, formData.password);
+          const existingUser = userCredential.user;
 
-        // Automatically redeem the invite for the existing user
-        await redeemInviteForUser(existingUser.uid, formData.email, `${formData.firstName} ${formData.lastName}`);
+          // Automatically redeem the invite for the existing user
+          await redeemInviteForUser(existingUser.uid, formData.email, `${formData.firstName} ${formData.lastName}`);
+        } catch (signInError: unknown) {
+          console.error('Sign-in error:', signInError);
+          
+          const errorCode = (signInError as { code?: string })?.code;
+          if (errorCode === 'auth/user-not-found') {
+            setError('No account found with this email. Please create a new account instead.');
+            setIsNewUser(true);
+            return; // Don't re-throw, just return
+          } else if (errorCode === 'auth/wrong-password') {
+            setError('Incorrect password. Please try again.');
+            return; // Don't re-throw, just return
+          } else if (errorCode === 'auth/invalid-credential') {
+            // This is a generic error, try to determine if user exists
+            try {
+              // Check if user exists by trying to create account (this will fail if user exists)
+              await createUserWithEmailAndPassword(auth, formData.email, 'tempPassword123!');
+              // If we get here, user doesn't exist (temp account created)
+              // Delete the temp account and switch to sign-up mode
+              await auth.currentUser?.delete();
+              setError('No account found with this email. Please create a new account instead.');
+              setIsNewUser(true);
+            } catch (createError: unknown) {
+              const createErrorCode = (createError as { code?: string })?.code;
+              if (createErrorCode === 'auth/email-already-in-use') {
+                // User exists, so it's a password issue
+                setError('Incorrect password. Please try again.');
+              } else {
+                // Some other error, show generic message
+                setError('Invalid email or password. Please check your credentials.');
+              }
+            }
+            return; // Don't re-throw, just return
+          } else {
+            setError(`Sign-in failed: ${(signInError as { message?: string })?.message || 'Unknown error'}`);
+            return; // Don't re-throw, just return
+          }
+        }
       }
     } catch (error: unknown) {
       console.error('Error joining team:', error);
@@ -200,24 +290,48 @@ const JoinInvite: React.FC = () => {
 
   // Handle Google sign-in
   const handleGoogleSignIn = async () => {
-    if (!inviteData) return;
-    
+    if (!inviteData) {
+      setError('No invite data available');
+      return;
+    }
+
     try {
+      console.log('🚀 Starting Google sign-in process...');
       setProcessingGoogleSignIn(true);
-      setError(null);
-      
+      setError('');
+
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
-      const googleUser = result.user;
       
-      console.log('✅ Google sign-in successful:', googleUser.uid);
+      console.log('✅ Google sign-in successful:', {
+        uid: result.user.uid,
+        email: result.user.email,
+        displayName: result.user.displayName
+      });
+
+      // Wait a moment for auth state to settle
+      await new Promise(resolve => setTimeout(resolve, 500));
       
-      // Automatically redeem the invite for the Google user
-      await redeemInviteForUser(googleUser.uid, googleUser.email || '', googleUser.displayName || '');
+      console.log('🔄 Redeeming invite for Google user...');
+      await redeemInviteForUser(result.user.uid, result.user.email || '', result.user.displayName || '');
       
     } catch (error) {
-      console.error('Error with Google sign-in:', error);
-      setError((error as Error).message || 'Google sign-in failed');
+      console.error('❌ Google sign-in error:', error);
+      
+      if (error instanceof Error) {
+        const authError = error as AuthError;
+        if (authError.code === 'auth/popup-closed-by-user') {
+          setError('Sign-in popup was closed. Please try again.');
+        } else if (authError.code === 'auth/popup-blocked') {
+          setError('Sign-in popup was blocked. Please allow popups for this site.');
+        } else if (authError.code === 'auth/network-request-failed') {
+          setError('Network error. Please check your connection and try again.');
+        } else {
+          setError(`Google sign-in failed: ${authError.message || 'Unknown error'}`);
+        }
+      } else {
+        setError('Google sign-in failed with an unknown error');
+      }
     } finally {
       setProcessingGoogleSignIn(false);
     }
@@ -225,48 +339,133 @@ const JoinInvite: React.FC = () => {
 
   // Handle invite redemption for any authenticated user
   const redeemInviteForUser = async (uid: string, email: string, displayName: string) => {
+    if (redeemingInvite) {
+      console.log('⚠️ Already redeeming invite, skipping...');
+      return;
+    }
+    
+    // Validate input parameters
+    if (!uid || !email || !displayName) {
+      console.error('❌ Invalid parameters for redeemInviteForUser:', { uid, email, displayName });
+      setError('Invalid user data for invite redemption');
+      return;
+    }
+    
+    // Validate that we have an authenticated user
+    if (!auth.currentUser) {
+      console.error('❌ No authenticated user available');
+      setError('User not authenticated');
+      return;
+    }
+    
+    // Validate that we have invite data
+    if (!inviteData) {
+      console.error('❌ No invite data available');
+      setError('No invite data available');
+      return;
+    }
+    
     try {
+      setRedeemingInvite(true);
+      console.log('🔄 Starting invite redemption for user:', { uid, email, displayName });
+      console.log('🔍 Current URL before redemption:', window.location.href);
+      console.log('🔍 Invite data available:', !!inviteData);
+      
       const token = searchParams.get('token');
       if (!token) {
         throw new Error('Missing invite token');
       }
+      
+      console.log('🔍 Token found:', token.substring(0, 20) + '...');
+      console.log('🔍 Current auth user:', auth.currentUser);
 
       // Call Cloud Function to redeem invite
+      console.log('📡 Calling redeemInvite Cloud Function...');
+      const requestBody = {
+        uid: uid,
+        token: token,
+        userData: {
+          email: email,
+          displayName: displayName,
+          firstName: displayName.split(' ')[0] || '',
+          lastName: displayName.split(' ').slice(1).join(' ') || '',
+          phoneNumber: ''
+        }
+      };
+      
+      console.log('📡 Request body being sent:', requestBody);
+      
       const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/redeemInvite', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${await auth.currentUser!.getIdToken()}`
         },
-        body: JSON.stringify({
-          uid: uid,
-          token: token,
-          userData: {
-            email: email,
-            displayName: displayName,
-            firstName: displayName.split(' ')[0] || '',
-            lastName: displayName.split(' ').slice(1).join(' ') || '',
-            phoneNumber: ''
-          }
-        })
+        body: JSON.stringify(requestBody)
       });
+
+      console.log('📡 Response status:', response.status);
+      console.log('📡 Response headers:', Object.fromEntries(response.headers.entries()));
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('❌ Cloud Function error:', errorData);
         throw new Error(errorData.error || 'Failed to redeem invite');
       }
+
+      const result = await response.json();
+      console.log('✅ Cloud Function response:', result);
 
       console.log('✅ Invite redeemed successfully for user:', uid);
       
       // Force refresh of auth state to get new custom claims
+      console.log('🔄 Refreshing auth token...');
       await auth.currentUser!.getIdToken(true);
       
-      // Navigate to dashboard
-      navigate('/app/dashboard');
+      console.log('✅ Auth token refreshed, waiting for user data update...');
+      
+      // Wait for the user data to be updated in the context
+      // This ensures the user has the correct role and proId before navigation
+      let attempts = 0;
+      const maxAttempts = 20; // Increased attempts
+      
+      while (attempts < maxAttempts) {
+        console.log(`🔄 Waiting for user data update... attempt ${attempts + 1}/${maxAttempts}`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Force refresh user data from context
+        if (user && typeof refreshUser === 'function') {
+          console.log('🔄 Forcing user data refresh...');
+          await refreshUser();
+        }
+        
+        // Check if user data has been updated
+        if (user && user.proId) {
+          console.log('✅ User data updated with proId:', user.proId);
+          break;
+        }
+        
+        attempts++;
+      }
+      
+      if (attempts >= maxAttempts) {
+        console.warn('⚠️ User data update timeout, proceeding with navigation anyway');
+      }
+      
+      console.log('🚀 About to show success message and redirect to login...');
+      console.log('🔍 Final URL before navigation:', window.location.href);
+      
+      // Show success message and redirect to login page
+      alert(`🎉 You have been successfully connected to the team! You will be exited out of this page and you can sign in normally.`);
+      
+      // Navigate to login page instead of dashboard
+      navigate('/auth');
       
     } catch (error) {
-      console.error('Error redeeming invite:', error);
+      console.error('❌ Error redeeming invite:', error);
       setError((error as Error).message || 'Failed to redeem invite');
+    } finally {
+      setRedeemingInvite(false);
     }
   };
 
@@ -317,11 +516,84 @@ const JoinInvite: React.FC = () => {
 
         {error && (
           <div className="mb-6 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-            <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+            <p className="text-sm text-red-700 dark:text-red-300 mb-3">{error}</p>
+            
+            {/* Special handling for claimed invites */}
+            {error.includes('already been used') && (
+              <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-sm text-blue-700 dark:text-blue-300 mb-2">
+                  <strong>💡 What to do next:</strong>
+                </p>
+                <div className="space-y-2 text-xs text-blue-600 dark:text-blue-400">
+                  <p>1. Open a new browser tab or window</p>
+                  <p>2. Go to <strong>https://drp-workshop.web.app</strong></p>
+                  <p>3. Sign in to your existing account</p>
+                  <p>4. You'll have access to your team dashboard</p>
+                </div>
+                <button
+                  onClick={() => window.open('https://drp-workshop.web.app', '_blank')}
+                  className="mt-3 w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-4 rounded transition-colors duration-200"
+                >
+                  🚀 Open New Tab & Sign In
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Debug Information (temporary) */}
+        {inviteData && (
+          <div className="mb-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+            <h4 className="text-sm font-semibold text-blue-800 dark:text-blue-200 mb-2">🔍 Debug Info</h4>
+            <div className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+              <p><strong>Invite ID:</strong> {inviteData.id}</p>
+              <p><strong>Role:</strong> {inviteData.role}</p>
+              <p><strong>Pro ID:</strong> {inviteData.proId}</p>
+              <p><strong>Expires:</strong> {new Date(inviteData.expiresAt).toLocaleString()}</p>
+              <p><strong>Token:</strong> {searchParams.get('token')?.substring(0, 20)}...</p>
+            </div>
+            
+            {/* Test Cloud Function Button */}
+            <button
+              onClick={async () => {
+                try {
+                  console.log('🧪 Testing Cloud Function call...');
+                  const token = searchParams.get('token');
+                  if (!token) {
+                    alert('No token available');
+                    return;
+                  }
+                  
+                  // Test the validateInvite function first
+                  const validateResponse = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/validateInvite', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token })
+                  });
+                  
+                  console.log('🧪 Validate response:', validateResponse.status);
+                  const validateResult = await validateResponse.json();
+                  console.log('🧪 Validate result:', validateResult);
+                  
+                  if (validateResponse.ok) {
+                    alert('✅ Validate function working! Check console for details.');
+                  } else {
+                    alert(`❌ Validate failed: ${validateResult.error}`);
+                  }
+                } catch (error) {
+                  console.error('🧪 Test failed:', error);
+                  alert(`❌ Test failed: ${(error as Error).message}`);
+                }
+              }}
+              className="mt-3 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors duration-200"
+            >
+              🧪 Test Cloud Function
+            </button>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Show name fields for both sign-in and sign-up */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -351,19 +623,22 @@ const JoinInvite: React.FC = () => {
             </div>
           </div>
 
-          <div>
-            <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Phone Number *
-            </label>
-            <input
-              id="phoneNumber"
-              type="tel"
-              value={formData.phoneNumber}
-              onChange={(e) => handleFormChange('phoneNumber', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white"
-              required
-            />
-          </div>
+          {/* Show phone number only for new accounts */}
+          {isNewUser && (
+            <div>
+              <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Phone Number *
+              </label>
+              <input
+                id="phoneNumber"
+                type="tel"
+                value={formData.phoneNumber}
+                onChange={(e) => handleFormChange('phoneNumber', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white"
+                required
+              />
+            </div>
+          )}
 
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -393,18 +668,32 @@ const JoinInvite: React.FC = () => {
             />
           </div>
 
-          <div>
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Confirm Password *
-            </label>
-            <input
-              id="confirmPassword"
-              type="password"
-              value={formData.confirmPassword}
-              onChange={(e) => handleFormChange('confirmPassword', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white"
-              required
-            />
+          {/* Show confirm password only for new accounts */}
+          {isNewUser && (
+            <div>
+              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Confirm Password *
+              </label>
+              <input
+                id="confirmPassword"
+                type="password"
+                value={formData.confirmPassword}
+                onChange={(e) => handleFormChange('confirmPassword', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white"
+                required
+              />
+            </div>
+          )}
+
+          {/* Mode indicator */}
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+            <p className="text-sm text-blue-700 dark:text-blue-300 text-center">
+              {isNewUser ? (
+                <>🆕 <strong>Creating new account</strong> - You'll be automatically added to the team</>
+              ) : (
+                <>🔑 <strong>Signing in to existing account</strong> - You'll be added to the team</>
+              )}
+            </p>
           </div>
 
           <button
@@ -412,13 +701,13 @@ const JoinInvite: React.FC = () => {
             disabled={submitting}
             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {submitting ? 'Joining Team...' : `Join as ${inviteData.role}`}
+            {submitting ? 'Joining Team...' : (isNewUser ? `Create Account & Join as ${inviteData.role}` : `Sign In & Join as ${inviteData.role}`)}
           </button>
         </form>
 
         <div className="mt-6 text-center">
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            Already have an account?{' '}
+            {isNewUser ? 'Already have an account?' : "Don't have an account yet?"}{' '}
             <button
               onClick={() => setIsNewUser(!isNewUser)}
               className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium"
@@ -428,26 +717,33 @@ const JoinInvite: React.FC = () => {
           </p>
           
           {/* Google Sign-in Button */}
-          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Or sign in with:</p>
-            <button
-              onClick={handleGoogleSignIn}
-              disabled={processingGoogleSignIn || !inviteData}
-              className="w-full flex items-center justify-center space-x-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 font-medium py-2 px-4 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {processingGoogleSignIn ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600"></div>
-              ) : (
+          <button
+            onClick={handleGoogleSignIn}
+            disabled={processingGoogleSignIn || redeemingInvite}
+            className="w-full bg-white hover:bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white font-semibold py-3 px-6 rounded-lg border border-gray-300 dark:border-gray-600 transition-colors duration-200 flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {processingGoogleSignIn ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-600"></div>
+                <span>Signing in...</span>
+              </>
+            ) : redeemingInvite ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-600"></div>
+                <span>Joining Team...</span>
+              </>
+            ) : (
+              <>
                 <svg className="w-5 h-5" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                   <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
                   <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                 </svg>
-              )}
-              <span>{processingGoogleSignIn ? 'Signing in...' : 'Sign in with Google'}</span>
-            </button>
-          </div>
+                <span>Sign in with Google</span>
+              </>
+            )}
+          </button>
         </div>
       </div>
     </div>

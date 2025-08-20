@@ -106,9 +106,9 @@ async function createSecureInvite(proId: string, role: string, email?: string): 
       .join('')
     );
   
-  // Set expiry to 7 days from now
+  // Set expiry to 1 hour from now for security and storage savings
   const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7);
+  expiresAt.setHours(expiresAt.getHours() + 1);
   
   // Create invite document
   const inviteRef = db.collection('invites').doc();
@@ -466,11 +466,14 @@ export const createInvite = onRequest({
     // Create secure invite
     const invite = await createSecureInvite(proId, role, email);
     
-    // Generate invite URL
+    // Generate invite URL - fix double slash issue
     const baseUrl = appBaseUrl.value();
-    const inviteUrl = `${baseUrl}/join?token=${invite.token}`;
+    // Remove trailing slash if present to prevent double slashes
+    const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+    const inviteUrl = `${cleanBaseUrl}/join?token=${invite.token}`;
 
-    logger.info('Invite created successfully:', { proId, role, inviteId: invite.inviteId });
+    logger.info('Invite created successfully:', { proId, role, inviteId: invite.inviteId, baseUrl, cleanBaseUrl, inviteUrl });
+    // Configuration updated: APP_BASE_URL now points to production
     
     response.status(200).json({
       success: true,
@@ -507,59 +510,84 @@ export const redeemInvite = onRequest({
   }
 
   try {
+    logger.info('🔄 redeemInvite function called');
+    
     const { uid, token, userData } = request.body;
+    logger.info('📥 Request body:', { uid, token: token ? token.substring(0, 20) + '...' : 'missing', userData });
     
     if (!uid || !token || !userData) {
+      logger.error('❌ Missing required fields:', { uid: !!uid, token: !!token, userData: !!userData });
       response.status(400).json({ error: 'Missing required fields' });
       return;
     }
 
     // Verify the user is authenticated
     const authHeader = request.headers.authorization || '';
+    logger.info('🔐 Auth header present:', !!authHeader);
+    
     const authenticatedUid = await verifyFirebaseToken(authHeader);
+    logger.info('✅ Firebase token verified, authenticated UID:', authenticatedUid);
     
     if (authenticatedUid !== uid) {
+      logger.error('❌ UID mismatch:', { authenticatedUid, requestedUid: uid });
       response.status(403).json({ error: 'Unauthorized' });
       return;
     }
 
     // Hash the token to find the invite
+    logger.info('🔍 Hashing token to find invite...');
     const tokenHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))
       .then(hash => Array.from(new Uint8Array(hash))
         .map(b => b.toString(16).padStart(2, '0'))
         .join('')
       );
+    logger.info('🔍 Token hash generated:', tokenHash.substring(0, 20) + '...');
 
     // Find and validate the invite
+    logger.info('🔍 Searching for invite with token hash...');
     const invitesQuery = await db.collection('invites')
       .where('tokenHash', '==', tokenHash)
       .limit(1)
       .get();
 
+    logger.info('🔍 Invite query result size:', invitesQuery.size);
+
     if (invitesQuery.empty) {
+      logger.error('❌ No invite found with token hash');
       response.status(404).json({ error: 'Invalid invite token' });
       return;
     }
 
     const inviteDoc = invitesQuery.docs[0];
     const inviteData = inviteDoc.data();
+    logger.info('✅ Invite found:', { 
+      inviteId: inviteDoc.id, 
+      proId: inviteData.proId, 
+      role: inviteData.role,
+      claimed: inviteData.claimed,
+      expiresAt: inviteData.expiresAt
+    });
 
     // Check if invite is already claimed
     if (inviteData.claimed) {
+      logger.error('❌ Invite already claimed by:', inviteData.claimedBy);
       response.status(400).json({ error: 'Invite has already been claimed' });
       return;
     }
 
     // Check if invite is expired
     if (inviteData.expiresAt.toDate() < new Date()) {
+      logger.error('❌ Invite expired at:', inviteData.expiresAt.toDate());
       response.status(400).json({ error: 'Invite has expired' });
       return;
     }
 
     // Validate seat availability
+    logger.info('🔍 Validating seat availability...');
     const validation = await validateInviteAndSeats(inviteData.proId, inviteData.role);
     
     if (!validation.valid) {
+      logger.error('❌ Seat validation failed:', validation.message);
       response.status(400).json({ 
         valid: false, 
         error: validation.message 
@@ -567,10 +595,15 @@ export const redeemInvite = onRequest({
       return;
     }
 
+    logger.info('✅ Seat validation passed');
+
     // Mark invite as claimed
+    logger.info('🔍 Marking invite as claimed...');
     await inviteDoc.ref.update({ claimed: true, claimedBy: uid, claimedAt: new Date() });
+    logger.info('✅ Invite marked as claimed');
 
     // Create or update user document with proper role and proId
+    logger.info('🔍 Creating/updating user document...');
     const userDoc: any = {
       uid: uid,
       email: userData.email,
@@ -588,17 +621,24 @@ export const redeemInvite = onRequest({
     if (!existingUserDoc.exists) {
       // New user - add createdAt
       userDoc.createdAt = new Date();
+      logger.info('✅ Adding createdAt for new user');
+    } else {
+      logger.info('✅ Updating existing user document');
     }
 
     await db.collection('users').doc(uid).set(userDoc, { merge: true });
+    logger.info('✅ User document saved successfully');
 
     // Set custom claims for role-based access
+    logger.info('🔍 Setting custom claims...');
     await getAuth().setCustomUserClaims(uid, {
       role: inviteData.role,
       proId: inviteData.proId
     });
+    logger.info('✅ Custom claims set successfully');
 
     // Update team member count
+    logger.info('🔍 Updating team member count...');
     const teamRef = db.collection('teams').doc(inviteData.proId);
     await db.runTransaction(async (transaction) => {
       const teamDoc = await transaction.get(teamRef);
@@ -607,12 +647,15 @@ export const redeemInvite = onRequest({
         const memberType = inviteData.role === 'STAFF' ? 'staff' : 'athlete';
         const newCount = (currentData?.membersCount?.[memberType] || 0) + 1;
         
+        logger.info('✅ Updating existing team:', { memberType, oldCount: currentData?.membersCount?.[memberType] || 0, newCount });
+        
         transaction.update(teamRef, {
           [`membersCount.${memberType}`]: newCount,
           updatedAt: new Date()
         });
       } else {
         // Create team document if it doesn't exist
+        logger.info('✅ Creating new team document');
         transaction.set(teamRef, {
           proId: inviteData.proId,
           name: 'My Team',
@@ -625,8 +668,9 @@ export const redeemInvite = onRequest({
         });
       }
     });
+    logger.info('✅ Team member count updated successfully');
 
-    logger.info('User successfully redeemed invite:', { uid, role: inviteData.role, proId: inviteData.proId });
+    logger.info('🎉 User successfully redeemed invite:', { uid, role: inviteData.role, proId: inviteData.proId });
     
     response.status(200).json({ 
       success: true, 
@@ -638,7 +682,7 @@ export const redeemInvite = onRequest({
     });
     
   } catch (error) {
-    logger.error('Error redeeming invite:', error);
+    logger.error('❌ Error redeeming invite:', error);
     response.status(500).json({ error: 'Failed to redeem invite' });
   }
 });
@@ -758,6 +802,62 @@ export const refreshCustomClaims = onRequest({
     } else {
       response.status(500).json({ error: 'Failed to refresh custom claims' });
     }
+  }
+});
+
+// Scheduled function to clean up expired invites every hour
+export const cleanupExpiredInvites = onRequest({
+  cors: true,
+  maxInstances: 1, // Only need one instance for cleanup
+  memory: '256MiB',
+  timeoutSeconds: 60
+}, async (request, response) => {
+  // Handle CORS preflight
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set('Access-Control-Allow-Methods', 'GET, POST');
+  response.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  if (request.method === 'OPTIONS') {
+    response.status(204).send('');
+    return;
+  }
+
+  try {
+    logger.info('Starting cleanup of expired invites...');
+    
+    const now = new Date();
+    
+    // Find all expired invites
+    const expiredInvitesQuery = await db.collection('invites')
+      .where('expiresAt', '<', now)
+      .get();
+    
+    if (expiredInvitesQuery.empty) {
+      logger.info('No expired invites found');
+      response.status(200).json({ message: 'No expired invites found', deletedCount: 0 });
+      return;
+    }
+    
+    // Delete expired invites in batches
+    const batch = db.batch();
+    let deletedCount = 0;
+    
+    expiredInvitesQuery.docs.forEach(doc => {
+      batch.delete(doc.ref);
+      deletedCount++;
+    });
+    
+    await batch.commit();
+    
+    logger.info(`Successfully deleted ${deletedCount} expired invites`);
+    response.status(200).json({ 
+      message: `Successfully deleted ${deletedCount} expired invites`,
+      deletedCount 
+    });
+    
+  } catch (error) {
+    logger.error('Error cleaning up expired invites:', error);
+    response.status(500).json({ error: 'Failed to cleanup expired invites' });
   }
 });
 

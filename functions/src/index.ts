@@ -571,7 +571,7 @@ export const redeemInvite = onRequest({
     await inviteDoc.ref.update({ claimed: true, claimedBy: uid, claimedAt: new Date() });
 
     // Create or update user document with proper role and proId
-    const userDoc = {
+    const userDoc: any = {
       uid: uid,
       email: userData.email,
       displayName: userData.displayName,
@@ -582,6 +582,13 @@ export const redeemInvite = onRequest({
       proId: inviteData.proId,
       updatedAt: new Date()
     };
+
+    // Check if user document already exists to determine if we need createdAt
+    const existingUserDoc = await db.collection('users').doc(uid).get();
+    if (!existingUserDoc.exists) {
+      // New user - add createdAt
+      userDoc.createdAt = new Date();
+    }
 
     await db.collection('users').doc(uid).set(userDoc, { merge: true });
 

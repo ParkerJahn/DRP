@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
-// Temporarily disabled Firestore imports due to permission errors
-// import { db } from '../config/firebase';
-// import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { db } from '../config/firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 
 interface TeamMember {
   uid: string;
@@ -36,40 +35,42 @@ function TeamManagement() {
     try {
       setLoading(true);
       
-      // TEMPORARILY DISABLED: Team data fetching causing Firestore permission errors
-      // TODO: Fix Firestore rules to allow PRO users to read their team data
-      console.log('🔍 Team data fetching temporarily disabled - fixing Firestore rules');
+      console.log('🔍 Loading team data for PRO user:', user.uid);
+      console.log('🔍 Current user data:', user);
+      console.log('🔍 User proId:', user.proId);
       
-      // Set default data for now
-      setTeamMembers([]);
-      setSeatLimits({
-        staffLimit: user.seats?.staffLimit || 5,
-        athleteLimit: user.seats?.athleteLimit || 20
-      });
-      
-      /* ORIGINAL CODE - ENABLE AFTER FIXING FIRESTORE RULES
       // Load team members
       const membersQuery = query(
         collection(db, 'users'),
-        where('proId', '==', user?.uid),
-        orderBy('createdAt', 'desc')
+        where('proId', '==', user.uid)
+        // Removed orderBy to avoid composite index requirement
       );
+      console.log('🔍 Executing query:', membersQuery);
       const membersSnapshot = await getDocs(membersQuery);
+      
+      console.log('🔍 Query result size:', membersSnapshot.size);
+      console.log('🔍 Query result docs:', membersSnapshot.docs.map(doc => ({ id: doc.id, data: doc.data() })));
       
       const members: TeamMember[] = [];
       membersSnapshot.forEach(doc => {
         const data = doc.data();
+        console.log('🔍 Processing doc:', { id: doc.id, data });
         if (data.role !== 'PRO') { // Don't include PRO users in team list
           members.push({
             uid: doc.id,
-            email: data.email,
-            displayName: data.displayName,
+            email: data.email || '',
+            displayName: data.displayName || 'Unknown User',
             role: data.role,
             joinedAt: data.createdAt?.toDate() || new Date(),
             status: 'active'
           });
         }
       });
+      
+      // Sort by creation date (newest first) in memory
+      members.sort((a, b) => b.joinedAt.getTime() - a.joinedAt.getTime());
+      
+      console.log('✅ Team members loaded:', members);
       setTeamMembers(members);
 
       // Load seat limits from user document or use defaults
@@ -79,13 +80,18 @@ function TeamManagement() {
           athleteLimit: user.seats.athleteLimit || 20
         });
       }
-      */
-
-      // Load pending invites (this would come from your invites collection)
-      // For now, we'll simulate this
       
     } catch (error) {
       console.error('Error loading team data:', error);
+      // Set default data on error
+      setTeamMembers([]);
+      setSeatLimits({
+        staffLimit: user.seats?.staffLimit || 5,
+        athleteLimit: user.seats?.athleteLimit || 20
+      });
+      
+      // Show error to user
+      alert(`❌ Error loading team data: ${(error as Error).message}. Please check the console for details.`);
     } finally {
       setLoading(false);
     }
@@ -135,6 +141,11 @@ function TeamManagement() {
         await copyToClipboard(invite.inviteUrl);
         setInviteEmail('');
         alert(`✅ ${inviteRole} invite created and copied to clipboard!`);
+        
+        // Reload team data to show updated counts
+        setTimeout(() => {
+          loadTeamData();
+        }, 1000);
       }
     } catch (error) {
       alert(`❌ Error creating invite: ${(error as Error).message}`);
@@ -199,11 +210,55 @@ function TeamManagement() {
   return (
     <div className="p-6 space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Your Team</h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Manage your team members and invite new Staff and Athletes
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Your Team</h1>
+          <p className="text-gray-600 dark:text-gray-400">
+            Manage your team members and invite new Staff and Athletes
+          </p>
+        </div>
+        <button
+          onClick={loadTeamData}
+          disabled={loading}
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {loading ? (
+            <div className="flex items-center space-x-2">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              <span>Loading...</span>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span>Refresh</span>
+            </div>
+          )}
+        </button>
+      </div>
+
+      {/* Debug Information (temporary) */}
+      <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+        <h4 className="text-lg font-semibold text-yellow-800 dark:text-yellow-200 mb-3">🐛 Debug Information</h4>
+        <div className="text-sm text-yellow-700 dark:text-yellow-300 space-y-2">
+          <p><strong>Current User ID:</strong> {user?.uid || 'None'}</p>
+          <p><strong>User Role:</strong> {user?.role || 'None'}</p>
+          <p><strong>User proId:</strong> {user?.proId || 'None'}</p>
+          <p><strong>Team Members Found:</strong> {teamMembers.length}</p>
+          <p><strong>Loading State:</strong> {loading ? 'Loading...' : 'Complete'}</p>
+        </div>
+        <button
+          onClick={() => {
+            console.log('🔍 Manual debug trigger');
+            console.log('User:', user);
+            console.log('Team Members:', teamMembers);
+            loadTeamData();
+          }}
+          className="mt-3 px-3 py-1 bg-yellow-600 hover:bg-yellow-700 text-white text-sm rounded transition-colors duration-200"
+        >
+          Debug & Reload
+        </button>
       </div>
 
       {/* Invite Links Section */}

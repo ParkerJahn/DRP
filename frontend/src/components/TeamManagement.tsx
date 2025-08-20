@@ -18,12 +18,16 @@ interface SeatLimits {
   athleteLimit: number;
 }
 
+
+
 function TeamManagement() {
-  const { user, role } = useAuth();
+  const { user, firebaseUser, role } = useAuth();
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [seatLimits, setSeatLimits] = useState<SeatLimits>({ staffLimit: 5, athleteLimit: 20 }); // Default limits
   const [loading, setLoading] = useState(true);
-  const [copiedRole, setCopiedRole] = useState<'STAFF' | 'ATHLETE' | null>(null);
+  const [creatingInvite, setCreatingInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<'STAFF' | 'ATHLETE'>('STAFF');
 
   // Define loadTeamData function before using it in useEffect
   const loadTeamData = async () => {
@@ -93,6 +97,50 @@ function TeamManagement() {
     }
   }, [user?.uid]);
 
+  const createInvite = async (role: 'STAFF' | 'ATHLETE', email?: string) => {
+    if (!user?.uid) return null;
+    
+    try {
+      setCreatingInvite(true);
+      
+      const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/createInvite', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await firebaseUser!.getIdToken()}`
+        },
+        body: JSON.stringify({ role, email })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create invite');
+      }
+
+      const result = await response.json();
+      return result.invite;
+    } catch (error) {
+      console.error('Error creating invite:', error);
+      throw error;
+    } finally {
+      setCreatingInvite(false);
+    }
+  };
+
+  const handleCreateInvite = async () => {
+    try {
+      const invite = await createInvite(inviteRole, inviteEmail || undefined);
+      if (invite) {
+        // Copy the invite URL to clipboard
+        await copyToClipboard(invite.inviteUrl);
+        setInviteEmail('');
+        alert(`✅ ${inviteRole} invite created and copied to clipboard!`);
+      }
+    } catch (error) {
+      alert(`❌ Error creating invite: ${(error as Error).message}`);
+    }
+  };
+
   // Only PRO users can access team management
   if (role !== 'PRO') {
     return (
@@ -105,31 +153,10 @@ function TeamManagement() {
     );
   }
 
-  const generateInviteLink = (inviteRole: 'STAFF' | 'ATHLETE') => {
-    if (!user?.uid) return '';
-    
-    // Generate a simple invite link (in production, this would be a signed token)
-    const baseUrl = window.location.origin;
-    const inviteData = {
-      proId: user.uid,
-      role: inviteRole,
-      timestamp: Date.now()
-    };
-    
-    // Encode the invite data (in production, this would be a secure token)
-    const encodedData = btoa(JSON.stringify(inviteData));
-    return `${baseUrl}/join?invite=${encodedData}`;
-  };
-
-  const copyToClipboard = async (text: string, inviteRole: 'STAFF' | 'ATHLETE') => {
+  const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      setCopiedRole(inviteRole);
-      
-      // Reset the copied state after 2 seconds
-      setTimeout(() => setCopiedRole(null), 2000);
-      
-      console.log(`✅ Invite link copied for ${inviteRole}`);
+      console.log('✅ Invite link copied to clipboard!');
     } catch (error) {
       console.error('Error copying to clipboard:', error);
       // Fallback for older browsers
@@ -139,9 +166,7 @@ function TeamManagement() {
       textArea.select();
       document.execCommand('copy');
       document.body.removeChild(textArea);
-      
-      setCopiedRole(inviteRole);
-      setTimeout(() => setCopiedRole(null), 2000);
+      console.log('✅ Invite link copied to clipboard (fallback)!');
     }
   };
 
@@ -158,9 +183,6 @@ function TeamManagement() {
   const isLimitReached = (memberRole: 'STAFF' | 'ATHLETE') => {
     return getRemainingSeats(memberRole) === 0;
   };
-
-  const staffInviteLink = generateInviteLink('STAFF');
-  const athleteInviteLink = generateInviteLink('ATHLETE');
 
   if (loading) {
     return (
@@ -186,105 +208,119 @@ function TeamManagement() {
 
       {/* Invite Links Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Staff Invite Links */}
+        {/* Create New Invite */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-              👥 Staff Invite Links
-            </h3>
-            <div className="text-sm text-gray-500 dark:text-gray-400">
-              {getCurrentCount('STAFF')}/{seatLimits.staffLimit} used
-            </div>
-          </div>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            🚀 Create New Invite
+          </h3>
           
           <div className="space-y-4">
-            <div className="flex space-x-2">
-              <input
-                type="text"
-                value={staffInviteLink}
-                readOnly
-                className={`flex-1 px-3 py-2 text-sm bg-gray-50 dark:bg-gray-700 border rounded-md ${
-                  isLimitReached('STAFF') 
-                    ? 'border-red-300 dark:border-red-600 text-gray-400 dark:text-gray-500 cursor-not-allowed' 
-                    : 'border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white'
-                }`}
-                placeholder={isLimitReached('STAFF') ? 'Staff limit reached' : 'Staff invite link'}
-              />
-              <button
-                onClick={() => copyToClipboard(staffInviteLink, 'STAFF')}
-                disabled={isLimitReached('STAFF')}
-                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                  isLimitReached('STAFF')
-                    ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                    : copiedRole === 'STAFF'
-                    ? 'bg-green-600 text-white focus:ring-green-500'
-                    : 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-500'
-                }`}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Role
+              </label>
+              <select
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value as 'STAFF' | 'ATHLETE')}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
-                {isLimitReached('STAFF') ? '❌ Limit Reached' : copiedRole === 'STAFF' ? '✅ Copied!' : '📋 Copy'}
-              </button>
+                <option value="STAFF">👥 Staff Member</option>
+                <option value="ATHLETE">💪 Athlete</option>
+              </select>
             </div>
             
-            {isLimitReached('STAFF') ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Email (Optional)
+              </label>
+              <input
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="user@example.com"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Leave blank for open invites, or specify to restrict to a specific email
+              </p>
+            </div>
+            
+            <button
+              onClick={handleCreateInvite}
+              disabled={creatingInvite || isLimitReached(inviteRole)}
+              className={`w-full px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                isLimitReached(inviteRole)
+                  ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                  : creatingInvite
+                  ? 'bg-indigo-400 dark:bg-indigo-500 text-white cursor-wait'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white focus:ring-indigo-500'
+              }`}
+            >
+              {creatingInvite ? 'Creating...' : isLimitReached(inviteRole) ? '❌ Limit Reached' : `Create ${inviteRole} Invite`}
+            </button>
+            
+            {isLimitReached(inviteRole) && (
               <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-3 rounded-md">
-                ⚠️ You've reached your Staff limit of {seatLimits.staffLimit}. Upgrade your plan for more seats.
-              </div>
-            ) : (
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                {getRemainingSeats('STAFF')} Staff seats remaining
+                ⚠️ You've reached your {inviteRole} limit of {inviteRole === 'STAFF' ? seatLimits.staffLimit : seatLimits.athleteLimit}. Upgrade your plan for more seats.
               </div>
             )}
           </div>
         </div>
 
-        {/* Athlete Invite Links */}
+        {/* Quick Invite Buttons */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-              💪 Athlete Invite Links
-            </h3>
-            <div className="text-sm text-gray-500 dark:text-gray-400">
-              {getCurrentCount('ATHLETE')}/{seatLimits.athleteLimit} used
-            </div>
-          </div>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            ⚡ Quick Invites
+          </h3>
           
           <div className="space-y-4">
-            <div className="flex space-x-2">
-              <input
-                type="text"
-                value={athleteInviteLink}
-                readOnly
-                className={`flex-1 px-3 py-2 text-sm bg-gray-50 dark:bg-gray-700 border rounded-md ${
-                  isLimitReached('ATHLETE') 
-                    ? 'border-red-300 dark:border-red-600 text-gray-400 dark:text-gray-500 cursor-not-allowed' 
-                    : 'border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white'
-                }`}
-                placeholder={isLimitReached('ATHLETE') ? 'Athlete limit reached' : 'Athlete invite link'}
-              />
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-medium text-gray-900 dark:text-white">👥 Staff</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  {getCurrentCount('STAFF')}/{seatLimits.staffLimit} used
+                </div>
+              </div>
               <button
-                onClick={() => copyToClipboard(athleteInviteLink, 'ATHLETE')}
-                disabled={isLimitReached('ATHLETE')}
+                onClick={() => {
+                  setInviteRole('STAFF');
+                  setInviteEmail('');
+                  handleCreateInvite();
+                }}
+                disabled={creatingInvite || isLimitReached('STAFF')}
                 className={`px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                  isLimitReached('ATHLETE')
+                  isLimitReached('STAFF')
                     ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                    : copiedRole === 'ATHLETE'
-                    ? 'bg-blue-600 text-white focus:ring-blue-500'
-                    : 'bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500'
+                    : 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-500'
                 }`}
               >
-                {isLimitReached('ATHLETE') ? '❌ Limit Reached' : copiedRole === 'ATHLETE' ? '✅ Copied!' : '📋 Copy'}
+                {isLimitReached('STAFF') ? 'Limit Reached' : 'Quick Invite'}
               </button>
             </div>
             
-            {isLimitReached('ATHLETE') ? (
-              <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-3 rounded-md">
-                ⚠️ You've reached your Athlete limit of {seatLimits.athleteLimit}. Upgrade your plan for more seats.
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-medium text-gray-900 dark:text-white">💪 Athlete</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  {getCurrentCount('ATHLETE')}/{seatLimits.athleteLimit} used
+                </div>
               </div>
-            ) : (
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                {getRemainingSeats('ATHLETE')} Athlete seats remaining
-              </div>
-            )}
+              <button
+                onClick={() => {
+                  setInviteRole('ATHLETE');
+                  setInviteEmail('');
+                  handleCreateInvite();
+                }}
+                disabled={creatingInvite || isLimitReached('ATHLETE')}
+                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                  isLimitReached('ATHLETE')
+                    ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500'
+                }`}
+              >
+                {isLimitReached('ATHLETE') ? 'Limit Reached' : 'Quick Invite'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -337,14 +373,21 @@ function TeamManagement() {
 
       {/* How to Use */}
       <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-6">
-        <h4 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-3">📋 How to Use Invite Links</h4>
+        <h4 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-3">📋 How to Use the New Invite System</h4>
         <ol className="text-sm text-blue-800 dark:text-blue-200 space-y-2">
-          <li>1. <strong>Copy the invite link</strong> for the role you want (Staff or Athlete)</li>
-          <li>2. <strong>Send it to your team member</strong> via email, text, or any messaging app</li>
-          <li>3. <strong>They click the link</strong> and create their account</li>
-          <li>4. <strong>They're automatically added</strong> to your team with the correct role</li>
-          <li>5. <strong>Monitor your seat usage</strong> - you have {seatLimits.staffLimit} Staff and {seatLimits.athleteLimit} Athlete seats</li>
+          <li>1. <strong>Create an invite</strong> by selecting the role (Staff or Athlete) and optionally specifying an email</li>
+          <li>2. <strong>The invite link is automatically copied</strong> to your clipboard</li>
+          <li>3. <strong>Send it to your team member</strong> via email, text, or any messaging app</li>
+          <li>4. <strong>They click the link</strong> and create their account or sign in</li>
+          <li>5. <strong>They're automatically added</strong> to your team with the correct role</li>
+          <li>6. <strong>Monitor your seat usage</strong> - you have {seatLimits.staffLimit} Staff and {seatLimits.athleteLimit} Athlete seats</li>
         </ol>
+        <div className="mt-4 p-3 bg-blue-100 dark:bg-blue-900/30 rounded-md">
+          <p className="text-sm text-blue-800 dark:text-blue-200">
+            <strong>🔒 Secure:</strong> Each invite is unique, single-use, and expires after 7 days. 
+            Email restrictions can be added for extra security.
+          </p>
+        </div>
       </div>
     </div>
   );

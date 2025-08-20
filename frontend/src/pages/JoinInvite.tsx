@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { auth, db } from '../config/firebase';
+import { auth } from '../config/firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import type { UserRole } from '../types';
 
 interface InviteData {
+  id: string;
   proId: string;
   role: UserRole;
-  timestamp: number;
+  email?: string;
+  expiresAt: string;
 }
 
 const JoinInvite: React.FC = () => {
@@ -31,43 +32,46 @@ const JoinInvite: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    const inviteParam = searchParams.get('invite');
-    if (!inviteParam) {
-      setError('No invite link provided');
+    const token = searchParams.get('token');
+    if (!token) {
+      setError('No invite token provided');
       setLoading(false);
       return;
     }
 
+    // Validate the invite token with the server
+    validateInviteToken(token);
+  }, [searchParams]);
+
+  const validateInviteToken = async (token: string) => {
     try {
-      // Decode the invite data
-      const decodedData = atob(inviteParam);
-      const parsedData: InviteData = JSON.parse(decodedData);
-      
-      // Validate the invite data
-      if (!parsedData.proId || !parsedData.role || !parsedData.timestamp) {
-        setError('Invalid invite link');
-        setLoading(false);
-        return;
+      const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/validateInvite', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ token })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to validate invite');
       }
 
-      // Check if invite is expired (7 days)
-      const inviteAge = Date.now() - parsedData.timestamp;
-      const sevenDays = 7 * 24 * 60 * 60 * 1000;
-      
-      if (inviteAge > sevenDays) {
-        setError('This invite link has expired. Please request a new one.');
+      const result = await response.json();
+      if (result.valid) {
+        setInviteData(result.invite);
         setLoading(false);
-        return;
+      } else {
+        setError(result.error || 'Invalid invite');
+        setLoading(false);
       }
-
-      setInviteData(parsedData);
-      setLoading(false);
     } catch (error) {
-      console.error('Error parsing invite:', error);
-      setError('Invalid invite link format');
+      console.error('Error validating invite:', error);
+      setError((error as Error).message || 'Failed to validate invite');
       setLoading(false);
     }
-  }, [searchParams]);
+  };
 
   useEffect(() => {
     // If user is already authenticated, redirect them
@@ -109,6 +113,12 @@ const JoinInvite: React.FC = () => {
       setSubmitting(true);
       setError(null);
 
+      const token = searchParams.get('token');
+      if (!token) {
+        setError('Missing invite token');
+        return;
+      }
+
       if (isNewUser) {
         // Create new account
         const userCredential = await createUserWithEmailAndPassword(
@@ -128,8 +138,7 @@ const JoinInvite: React.FC = () => {
           },
           body: JSON.stringify({
             uid: newUser.uid,
-            proId: inviteData.proId,
-            role: inviteData.role,
+            token: token,
             userData: {
               email: formData.email,
               displayName: `${formData.firstName} ${formData.lastName}`,
@@ -146,22 +155,48 @@ const JoinInvite: React.FC = () => {
         }
 
         console.log('✅ New user account created successfully');
+        
+        // Force refresh of auth state to get new custom claims
+        await newUser.getIdToken(true);
+        
+        // Navigate to dashboard
         navigate('/app/dashboard');
       } else {
         // Sign in existing account
-        await signInWithEmailAndPassword(auth, formData.email, formData.password);
-        
-        // Update existing user's role and proId
-        if (user?.uid) {
-          const userRef = doc(db, 'users', user.uid);
-          await setDoc(userRef, {
-            role: inviteData.role,
-            proId: inviteData.proId,
-            updatedAt: serverTimestamp()
-          }, { merge: true });
+        const userCredential = await signInWithEmailAndPassword(auth, formData.email, formData.password);
+        const existingUser = userCredential.user;
+
+        // Call Cloud Function to redeem invite for existing user
+        const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/redeemInvite', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${await existingUser.getIdToken()}`
+          },
+          body: JSON.stringify({
+            uid: existingUser.uid,
+            token: token,
+            userData: {
+              email: formData.email,
+              displayName: `${formData.firstName} ${formData.lastName}`,
+              firstName: formData.firstName,
+              lastName: formData.lastName,
+              phoneNumber: formData.phoneNumber
+            }
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to redeem invite');
         }
 
         console.log('✅ Existing user joined team successfully');
+        
+        // Force refresh of auth state to get new custom claims
+        await existingUser.getIdToken(true);
+        
+        // Navigate to dashboard
         navigate('/app/dashboard');
       }
     } catch (error: unknown) {

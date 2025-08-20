@@ -44,8 +44,8 @@ function AppContent() {
 
   // Check if this is a join invite route
   const urlParams = new URLSearchParams(window.location.search);
-  const inviteParam = urlParams.get('invite');
-  const isJoinRoute = window.location.pathname === ROUTES.JOIN_INVITE && inviteParam;
+  const tokenParam = urlParams.get('token');
+  const isJoinRoute = window.location.pathname === ROUTES.JOIN_INVITE && tokenParam;
 
   if (isJoinRoute) {
     return <JoinInvite />;

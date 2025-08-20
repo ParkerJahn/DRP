@@ -327,3 +327,78 @@ export const createProgramWithPhases = async (
     return { success: false, error };
   }
 }; 
+
+// Program Templates
+export interface ProgramTemplate {
+  id: string;
+  proId: string;
+  title: string;
+  phases: Phase[] | [Phase, Phase, Phase, Phase];
+  createdBy: string;
+  createdAt: any;
+  updatedAt: any;
+}
+
+export const createProgramTemplate = async (template: Omit<ProgramTemplate, 'id' | 'createdAt' | 'updatedAt'>) => {
+  try {
+    const ref = doc(collection(db, 'program_templates'));
+    const payload = { ...template, id: ref.id, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+    await setDoc(ref, payload);
+    return { success: true, templateId: ref.id, template: payload };
+  } catch (error) {
+    console.error('Error creating template:', error);
+    return { success: false, error };
+  }
+};
+
+export const getProgramTemplatesByPro = async (proId: string) => {
+  try {
+    const ref = collection(db, 'program_templates');
+    const q = query(ref, where('proId', '==', proId));
+    const snap = await getDocs(q);
+    const templates: ProgramTemplate[] = [];
+    snap.forEach(d => templates.push({ id: d.id, ...(d.data() as any) }));
+    return { success: true, templates };
+  } catch (error) {
+    console.error('Error fetching templates:', error);
+    return { success: false, error };
+  }
+};
+
+export const deleteProgramTemplate = async (templateId: string) => {
+  try {
+    const ref = doc(db, 'program_templates', templateId);
+    await deleteDoc(ref);
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting template:', error);
+    return { success: false, error };
+  }
+};
+
+export const assignTemplateToAthlete = async (templateId: string, proId: string, athleteUid: string, createdBy: string) => {
+  try {
+    const tRef = doc(db, 'program_templates', templateId);
+    const tSnap = await getDoc(tRef);
+    if (!tSnap.exists()) return { success: false, error: 'Template not found' };
+    const t = tSnap.data() as any;
+
+    const programRef = doc(collection(db, 'programs'));
+    const newProgram = {
+      id: programRef.id,
+      proId,
+      athleteUid,
+      title: t.title,
+      status: 'draft',
+      phases: t.phases,
+      createdBy,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    await setDoc(programRef, newProgram);
+    return { success: true, programId: programRef.id };
+  } catch (error) {
+    console.error('Error assigning template:', error);
+    return { success: false, error };
+  }
+}; 

@@ -18,7 +18,6 @@ import Stripe from 'stripe';
 import {defineString} from "firebase-functions/params";
 
 
-
 // Initialize Firebase Admin
 initializeApp();
 
@@ -93,6 +92,42 @@ async function validateInviteAndSeats(proId: string, role: string): Promise<{ va
     logger.error('Error validating invite:', error);
     return { valid: false, message: 'Error validating invite' };
   }
+}
+
+// Helper function to create secure invite tokens
+async function createSecureInvite(proId: string, role: string, email?: string): Promise<{ inviteId: string; token: string; expiresAt: Date }> {
+  // Generate a secure random token
+  const token = crypto.randomUUID();
+  
+  // Hash the token for storage (we only store the hash)
+  const tokenHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))
+    .then(hash => Array.from(new Uint8Array(hash))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('')
+    );
+  
+  // Set expiry to 7 days from now
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7);
+  
+  // Create invite document
+  const inviteRef = db.collection('invites').doc();
+  await inviteRef.set({
+    proId,
+    role,
+    email: email || null,
+    tokenHash,
+    expiresAt,
+    createdAt: new Date(),
+    createdBy: proId,
+    claimed: false
+  });
+  
+  return {
+    inviteId: inviteRef.id,
+    token: token, // Return plain token to client
+    expiresAt
+  };
 }
 
 // PRO Upgrade Function - Creates Stripe checkout session
@@ -289,7 +324,7 @@ export const onUserCreate = onRequest({
   }
 });
 
-// Invite validation function - Validates invite links and checks seat availability
+// Invite validation function - Validates invite tokens and checks seat availability
 export const validateInvite = onRequest({
   cors: true,
   maxInstances: 5,
@@ -307,17 +342,60 @@ export const validateInvite = onRequest({
   }
 
   try {
-    const { proId, role } = request.body;
+    const { token } = request.body;
     
-    if (!proId || !role) {
-      response.status(400).json({ error: 'Missing proId or role' });
+    if (!token) {
+      response.status(400).json({ error: 'Missing invite token' });
       return;
     }
 
-    const validation = await validateInviteAndSeats(proId, role);
+    // Hash the token to compare with stored hash
+    const tokenHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))
+      .then(hash => Array.from(new Uint8Array(hash))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('')
+      );
+
+    // Find invite by token hash
+    const invitesQuery = await db.collection('invites')
+      .where('tokenHash', '==', tokenHash)
+      .limit(1)
+      .get();
+
+    if (invitesQuery.empty) {
+      response.status(404).json({ error: 'Invalid invite token' });
+      return;
+    }
+
+    const inviteDoc = invitesQuery.docs[0];
+    const inviteData = inviteDoc.data();
+
+    // Check if invite is already claimed
+    if (inviteData.claimed) {
+      response.status(400).json({ error: 'Invite has already been claimed' });
+      return;
+    }
+
+    // Check if invite is expired
+    if (inviteData.expiresAt.toDate() < new Date()) {
+      response.status(400).json({ error: 'Invite has expired' });
+      return;
+    }
+
+    // Validate seat availability
+    const validation = await validateInviteAndSeats(inviteData.proId, inviteData.role);
     
     if (validation.valid) {
-      response.status(200).json({ valid: true });
+      response.status(200).json({ 
+        valid: true,
+        invite: {
+          id: inviteDoc.id,
+          proId: inviteData.proId,
+          role: inviteData.role,
+          email: inviteData.email,
+          expiresAt: inviteData.expiresAt
+        }
+      });
     } else {
       response.status(400).json({ 
         valid: false, 
@@ -328,6 +406,86 @@ export const validateInvite = onRequest({
   } catch (error) {
     logger.error('Error validating invite:', error);
     response.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create invite function - Allows PRO users to create secure invite links
+export const createInvite = onRequest({
+  cors: true,
+  maxInstances: 5,
+  memory: '256MiB',
+  timeoutSeconds: 30
+}, async (request, response) => {
+  // Handle CORS preflight
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set('Access-Control-Allow-Methods', 'GET, POST');
+  response.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  if (request.method === 'OPTIONS') {
+    response.status(204).send('');
+    return;
+  }
+
+  try {
+    // Verify user is authenticated and is PRO
+    const authHeader = request.headers.authorization || '';
+    const proId = await verifyFirebaseToken(authHeader);
+    
+    if (!proId) {
+      response.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    // Verify user is PRO and has active status
+    const proUserDoc = await db.collection('users').doc(proId).get();
+    if (!proUserDoc.exists) {
+      response.status(404).json({ error: 'PRO user not found' });
+      return;
+    }
+
+    const proUserData = proUserDoc.data();
+    if (proUserData?.role !== 'PRO' || proUserData?.proStatus !== 'active') {
+      response.status(403).json({ error: 'Only active PRO users can create invites' });
+      return;
+    }
+
+    const { role, email } = request.body;
+    
+    if (!role || !['STAFF', 'ATHLETE'].includes(role)) {
+      response.status(400).json({ error: 'Invalid role. Must be STAFF or ATHLETE' });
+      return;
+    }
+
+    // Check seat availability before creating invite
+    const validation = await validateInviteAndSeats(proId, role);
+    if (!validation.valid) {
+      response.status(400).json({ error: validation.message });
+      return;
+    }
+
+    // Create secure invite
+    const invite = await createSecureInvite(proId, role, email);
+    
+    // Generate invite URL
+    const baseUrl = appBaseUrl.value();
+    const inviteUrl = `${baseUrl}/join?token=${invite.token}`;
+
+    logger.info('Invite created successfully:', { proId, role, inviteId: invite.inviteId });
+    
+    response.status(200).json({
+      success: true,
+      invite: {
+        id: invite.inviteId,
+        role,
+        email: email || null,
+        expiresAt: invite.expiresAt,
+        inviteUrl
+      }
+    });
+    
+  } catch (error) {
+    logger.error('Error creating invite:', error);
+    response.status(500).json({ error: 'Failed to create invite' });
   }
 });
 
@@ -349,9 +507,9 @@ export const redeemInvite = onRequest({
   }
 
   try {
-    const { uid, proId, role, userData } = request.body;
+    const { uid, token, userData } = request.body;
     
-    if (!uid || !proId || !role || !userData) {
+    if (!uid || !token || !userData) {
       response.status(400).json({ error: 'Missing required fields' });
       return;
     }
@@ -365,8 +523,41 @@ export const redeemInvite = onRequest({
       return;
     }
 
-    // Validate invite and check seat availability
-    const validation = await validateInviteAndSeats(proId, role);
+    // Hash the token to find the invite
+    const tokenHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))
+      .then(hash => Array.from(new Uint8Array(hash))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('')
+      );
+
+    // Find and validate the invite
+    const invitesQuery = await db.collection('invites')
+      .where('tokenHash', '==', tokenHash)
+      .limit(1)
+      .get();
+
+    if (invitesQuery.empty) {
+      response.status(404).json({ error: 'Invalid invite token' });
+      return;
+    }
+
+    const inviteDoc = invitesQuery.docs[0];
+    const inviteData = inviteDoc.data();
+
+    // Check if invite is already claimed
+    if (inviteData.claimed) {
+      response.status(400).json({ error: 'Invite has already been claimed' });
+      return;
+    }
+
+    // Check if invite is expired
+    if (inviteData.expiresAt.toDate() < new Date()) {
+      response.status(400).json({ error: 'Invite has expired' });
+      return;
+    }
+
+    // Validate seat availability
+    const validation = await validateInviteAndSeats(inviteData.proId, inviteData.role);
     
     if (!validation.valid) {
       response.status(400).json({ 
@@ -376,7 +567,10 @@ export const redeemInvite = onRequest({
       return;
     }
 
-    // Create user document with proper role and proId
+    // Mark invite as claimed
+    await inviteDoc.ref.update({ claimed: true, claimedBy: uid, claimedAt: new Date() });
+
+    // Create or update user document with proper role and proId
     const userDoc = {
       uid: uid,
       email: userData.email,
@@ -384,41 +578,56 @@ export const redeemInvite = onRequest({
       firstName: userData.firstName,
       lastName: userData.lastName,
       phoneNumber: userData.phoneNumber,
-      role: role,
-      proId: proId,
-      createdAt: new Date(),
+      role: inviteData.role,
+      proId: inviteData.proId,
       updatedAt: new Date()
     };
 
-    await db.collection('users').doc(uid).set(userDoc);
+    await db.collection('users').doc(uid).set(userDoc, { merge: true });
 
     // Set custom claims for role-based access
     await getAuth().setCustomUserClaims(uid, {
-      role: role,
-      proId: proId
+      role: inviteData.role,
+      proId: inviteData.proId
     });
 
     // Update team member count
-    const teamRef = db.collection('teams').doc(proId);
+    const teamRef = db.collection('teams').doc(inviteData.proId);
     await db.runTransaction(async (transaction) => {
       const teamDoc = await transaction.get(teamRef);
       if (teamDoc.exists) {
         const currentData = teamDoc.data();
-        const memberType = role === 'STAFF' ? 'staff' : 'athlete';
+        const memberType = inviteData.role === 'STAFF' ? 'staff' : 'athlete';
         const newCount = (currentData?.membersCount?.[memberType] || 0) + 1;
         
         transaction.update(teamRef, {
           [`membersCount.${memberType}`]: newCount,
           updatedAt: new Date()
         });
+      } else {
+        // Create team document if it doesn't exist
+        transaction.set(teamRef, {
+          proId: inviteData.proId,
+          name: 'My Team',
+          membersCount: {
+            staff: inviteData.role === 'STAFF' ? 1 : 0,
+            athlete: inviteData.role === 'ATHLETE' ? 1 : 0
+          },
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
       }
     });
 
-    logger.info('User successfully redeemed invite:', { uid, role, proId });
+    logger.info('User successfully redeemed invite:', { uid, role: inviteData.role, proId: inviteData.proId });
     
     response.status(200).json({ 
       success: true, 
-      message: 'Invite redeemed successfully' 
+      message: 'Invite redeemed successfully',
+      user: {
+        role: inviteData.role,
+        proId: inviteData.proId
+      }
     });
     
   } catch (error) {

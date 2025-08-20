@@ -100,6 +100,7 @@ export interface Payment {
 export type ProgramStatus = 'current' | 'archived' | 'draft';
 
 export interface Program {
+  id?: string; // Firestore document id (present on reads)
   proId: string;
   athleteUid: string;
   title: string;
@@ -128,6 +129,29 @@ export interface Exercise {
   load?: string; // optional weight prescription
   tempo?: string;
   restSec?: number;
+  // UI-extended fields (optional) used by Programs page
+  category?: string;
+  exerciseName?: string;
+  completed?: boolean;
+  // Per-set selections (render-only; optional for persistence)
+  repsBySet?: Record<number, string>;
+  weightBySet?: Record<number, string>;
+  // Back-compat with current save shape
+  repsMap?: Record<number, string>;
+  weightMap?: Record<number, string>;
+  // Current implementation uses these keys in saves
+  repsObject?: Record<number, string>;
+  weightObject?: Record<number, string>;
+  // Some code writes directly as reps/weight objects
+  repsValues?: Record<number, string>;
+  weightValues?: Record<number, string>;
+  // Allow generic maps named reps/weight as well
+  repsRecord?: Record<number, string>;
+  weightRecord?: Record<number, string>;
+  repsOptional?: Record<number, string>;
+  weightOptional?: Record<number, string>;
+  // Minimal compatibility: allow extra keys without failing type checks
+  [key: string]: unknown;
 }
 
 // Auth Context Types

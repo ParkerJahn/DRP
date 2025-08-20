@@ -8,6 +8,7 @@ import type { User, UserRole, ProStatus } from '../types';
 
 interface AuthContextType {
   user: User | null;
+  firebaseUser: FirebaseUser | null;
   loading: boolean;
   role: UserRole | null;
   proId: string | null;
@@ -158,6 +159,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const value: AuthContextType = {
     user,
+    firebaseUser,
     loading,
     role,
     proId,

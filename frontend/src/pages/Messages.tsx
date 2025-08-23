@@ -6,7 +6,8 @@ import {
   getChatsByParticipant, 
   sendMessage, 
   getMessagesByChat,
-  deleteChat
+  deleteChat,
+  updateChat
 } from '../services/messages';
 import { getUsersByRole } from '../services/firebase';
 import type { Chat, Message, User } from '../types';
@@ -26,6 +27,7 @@ const Messages: React.FC = () => {
     members: [] as string[]
   });
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [isChatSettingsOpen, setIsChatSettingsOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -221,6 +223,56 @@ const Messages: React.FC = () => {
     }
   };
 
+  const handleAddMembers = async (memberUids: string[]) => {
+    if (!selectedChat || !canCreateChat) return;
+    
+    try {
+      const updatedMembers = [...selectedChat.members, ...memberUids];
+      const result = await updateChat(selectedChat.id, { members: updatedMembers });
+      
+      if (result.success) {
+        // Update local state
+        const updatedChat = { ...selectedChat, members: updatedMembers };
+        setSelectedChat(updatedChat);
+        setChats(prev => prev.map(chat => 
+          chat.id === selectedChat.id ? updatedChat : chat
+        ));
+        alert('Members added successfully!');
+      } else {
+        alert('Failed to add members');
+      }
+    } catch (error) {
+      console.error('Error adding members:', error);
+      alert('Error adding members');
+    }
+  };
+
+  const handleRemoveMember = async (memberUid: string) => {
+    if (!selectedChat || !canCreateChat) return;
+    
+    if (!confirm('Are you sure you want to remove this member from the chat?')) return;
+    
+    try {
+      const updatedMembers = selectedChat.members.filter(uid => uid !== memberUid);
+      const result = await updateChat(selectedChat.id, { members: updatedMembers });
+      
+      if (result.success) {
+        // Update local state
+        const updatedChat = { ...selectedChat, members: updatedMembers };
+        setSelectedChat(updatedChat);
+        setChats(prev => prev.map(chat => 
+          chat.id === selectedChat.id ? updatedChat : chat
+        ));
+        alert('Member removed successfully!');
+      } else {
+        alert('Failed to remove member');
+      }
+    } catch (error) {
+      console.error('Error removing member:', error);
+      alert('Error removing member');
+    }
+  };
+
   const canCreateChat = user?.role === 'PRO' || user?.role === 'STAFF';
   const canDeleteChat = user?.role === 'PRO' || user?.role === 'STAFF';
 
@@ -311,18 +363,6 @@ const Messages: React.FC = () => {
                         <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                           {getChatTitle(chat)}
                         </p>
-                        {canDeleteChat && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteChat(chat.id);
-                            }}
-                            className="text-red-500 hover:text-red-700 text-xs ml-2"
-                            title="Delete Chat"
-                          >
-                            🗑️
-                          </button>
-                        )}
                       </div>
                       {chat.lastMessage && (
                         <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
@@ -363,8 +403,19 @@ const Messages: React.FC = () => {
                       {getMemberNames(selectedChat).join(', ')}
                     </p>
                   </div>
-                  <div className="text-xs text-gray-400 dark:text-gray-500">
-                    {selectedChat.members.length} member{selectedChat.members.length !== 1 ? 's' : ''}
+                  <div className="flex items-center gap-3">
+                    <div className="text-xs text-gray-400 dark:text-gray-500">
+                      {selectedChat.members.length} member{selectedChat.members.length !== 1 ? 's' : ''}
+                    </div>
+                    {canCreateChat && (
+                      <button
+                        onClick={() => setIsChatSettingsOpen(true)}
+                        className="p-2 hover:bg-gray-100 dark:hover:bg-neutral-700 rounded-lg transition-colors"
+                        title="Chat Settings"
+                      >
+                        <span className="text-lg text-white">⋮</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -377,28 +428,54 @@ const Messages: React.FC = () => {
                     <p>No messages yet. Start the conversation!</p>
                   </div>
                 ) : (
-                  messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`flex ${message.by === user.uid ? 'justify-end' : 'justify-start'}`}
-                    >
+                  messages.map((message) => {
+                    const isOwnMessage = message.by === user.uid;
+                    const sender = teamMembers.find(member => member.uid === message.by);
+                    const senderName = sender ? (sender.displayName || `${sender.firstName} ${sender.lastName}`) : 'Unknown User';
+                    const senderRole = sender ? sender.role : '';
+                    
+                    return (
                       <div
-                        className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                          message.by === user.uid
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-gray-200 dark:bg-neutral-700 text-gray-900 dark:text-white'
-                        }`}
+                        key={message.id}
+                        className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
                       >
-                        <p className="text-sm">{message.text}</p>
-                        <p className="text-xs mt-1 opacity-70">
-                          {new Date(message.createdAt.toDate()).toLocaleTimeString([], { 
-                            hour: '2-digit', 
-                            minute: '2-digit' 
-                          })}
-                        </p>
+                        <div className="max-w-xs lg:max-w-md">
+                          {/* Sender Name */}
+                          <div className={`text-xs text-gray-500 dark:text-gray-400 mb-1 flex items-center gap-1 ${
+                            isOwnMessage ? 'justify-end' : 'justify-start'
+                          }`}>
+                            {!isOwnMessage && (
+                              <div className={`w-2 h-2 rounded-full ${
+                                senderRole === 'PRO' ? 'bg-purple-500' :
+                                senderRole === 'STAFF' ? 'bg-green-500' :
+                                senderRole === 'ATHLETE' ? 'bg-blue-500' : 'bg-gray-400'
+                              }`}></div>
+                            )}
+                            <span>
+                              {isOwnMessage ? 'You' : `${senderName}${senderRole ? ` (${senderRole})` : ''}`}
+                            </span>
+                          </div>
+                          
+                          {/* Message Bubble */}
+                          <div
+                            className={`px-4 py-2 rounded-lg ${
+                              isOwnMessage
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-gray-200 dark:bg-neutral-700 text-gray-900 dark:text-white'
+                            }`}
+                          >
+                            <p className="text-sm">{message.text}</p>
+                            <p className="text-xs mt-1 opacity-70">
+                              {new Date(message.createdAt.toDate()).toLocaleTimeString([], { 
+                                hour: '2-digit', 
+                                minute: '2-digit' 
+                              })}
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
                 <div ref={messagesEndRef} />
               </div>
@@ -514,6 +591,137 @@ const Messages: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Chat Settings Modal */}
+      {isChatSettingsOpen && selectedChat && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-neutral-800 rounded-lg p-6 w-96 max-w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              Chat Settings - {getChatTitle(selectedChat)}
+            </h3>
+            
+            <div className="space-y-4">
+              {/* Current Members */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Current Members</h4>
+                
+                {/* Staff Members */}
+                <div className="mb-4">
+                  <h5 className="text-xs font-medium text-green-600 dark:text-green-400 mb-2 uppercase tracking-wide">
+                    👥 Staff Members
+                  </h5>
+                  <div className="space-y-2">
+                    {teamMembers
+                      .filter(member => selectedChat.members.includes(member.uid) && member.role === 'STAFF')
+                      .map((member) => (
+                        <div key={member.uid} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-neutral-700 rounded">
+                          <span className="text-sm text-gray-900 dark:text-white">
+                            {member.displayName || `${member.firstName} ${member.lastName}`}
+                          </span>
+                          {canCreateChat && member.uid !== user?.uid && (
+                            <button
+                              onClick={() => handleRemoveMember(member.uid)}
+                              className="text-red-500 hover:text-red-700 text-xs"
+                              title="Remove from chat"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    {teamMembers.filter(member => selectedChat.members.includes(member.uid) && member.role === 'STAFF').length === 0 && (
+                      <p className="text-xs text-gray-400 dark:text-gray-500 italic">No staff members</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Athletes */}
+                <div className="mb-4">
+                  <h5 className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-2 uppercase tracking-wide">
+                    💪 Athletes
+                  </h5>
+                  <div className="space-y-2">
+                    {teamMembers
+                      .filter(member => selectedChat.members.includes(member.uid) && member.role === 'ATHLETE')
+                      .map((member) => (
+                        <div key={member.uid} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-neutral-700 rounded">
+                          <span className="text-sm text-gray-900 dark:text-white">
+                            {member.displayName || `${member.firstName} ${member.lastName}`}
+                          </span>
+                          {canCreateChat && member.uid !== user?.uid && (
+                            <button
+                              onClick={() => handleRemoveMember(member.uid)}
+                              className="text-red-500 hover:text-red-700 text-xs"
+                              title="Remove from chat"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    {teamMembers.filter(member => selectedChat.members.includes(member.uid) && member.role === 'ATHLETE').length === 0 && (
+                      <p className="text-xs text-gray-400 dark:text-gray-500 italic">No athletes</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Add New Members */}
+              {canCreateChat && (
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Add New Members</h4>
+                  <select
+                    multiple
+                    value={[]}
+                    onChange={(e) => {
+                      const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
+                      if (selectedOptions.length > 0) {
+                        handleAddMembers(selectedOptions);
+                        // Reset selection
+                        e.target.selectedIndex = -1;
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    {teamMembers
+                      .filter(member => !selectedChat.members.includes(member.uid))
+                      .map((member) => (
+                        <option key={member.uid} value={member.uid}>
+                          {member.displayName || `${member.firstName} ${member.lastName}`} ({member.role})
+                        </option>
+                      ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple members</p>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex justify-between items-center pt-6 border-t border-gray-200 dark:border-gray-700">
+                {canDeleteChat && (
+                  <button
+                    onClick={() => {
+                      if (confirm('Are you sure you want to delete this chat? This action cannot be undone.')) {
+                        handleDeleteChat(selectedChat.id);
+                        setIsChatSettingsOpen(false);
+                      }
+                    }}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    🗑️ Delete Chat
+                  </button>
+                )}
+                
+                <button
+                  onClick={() => setIsChatSettingsOpen(false)}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

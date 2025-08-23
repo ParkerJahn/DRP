@@ -80,14 +80,21 @@ export const getChatsByPro = async (proId: string) => {
     const chatsRef = collection(db, 'chats');
     const q = query(
       chatsRef, 
-      where('proId', '==', proId),
-      orderBy('updatedAt', 'desc')
+      where('proId', '==', proId)
+      // Removed orderBy to avoid composite index requirement
     );
     const querySnapshot = await getDocs(q);
     
     const chats: Array<Chat & { id: string }> = [];
     querySnapshot.forEach((doc) => {
       chats.push({ id: doc.id, ...doc.data() } as Chat & { id: string });
+    });
+    
+    // Sort client-side instead
+    chats.sort((a, b) => {
+      const aTime = a.updatedAt?.toDate?.() || a.createdAt.toDate();
+      const bTime = b.updatedAt?.toDate?.() || b.createdAt.toDate();
+      return bTime.getTime() - aTime.getTime();
     });
     
     return { success: true, chats };
@@ -103,14 +110,21 @@ export const getChatsByParticipant = async (participantUid: string) => {
     const chatsRef = collection(db, 'chats');
     const q = query(
       chatsRef, 
-      where('participants', 'array-contains', participantUid),
-      orderBy('updatedAt', 'desc')
+      where('members', 'array-contains', participantUid)
+      // Removed orderBy to avoid composite index requirement
     );
     const querySnapshot = await getDocs(q);
     
     const chats: Array<Chat & { id: string }> = [];
     querySnapshot.forEach((doc) => {
       chats.push({ id: doc.id, ...doc.data() } as Chat & { id: string });
+    });
+    
+    // Sort client-side instead
+    chats.sort((a, b) => {
+      const aTime = a.updatedAt?.toDate?.() || a.createdAt.toDate();
+      const bTime = b.updatedAt?.toDate?.() || b.createdAt.toDate();
+      return bTime.getTime() - aTime.getTime();
     });
     
     return { success: true, chats };
@@ -123,7 +137,8 @@ export const getChatsByParticipant = async (participantUid: string) => {
 // Message Management
 export const sendMessage = async (messageData: Omit<Message, 'createdAt'>) => {
   try {
-    const messageRef = await addDoc(collection(db, 'messages'), {
+    // Store messages as subcollection of chats for better security
+    const messageRef = await addDoc(collection(db, 'chats', messageData.chatId, 'messages'), {
       ...messageData,
       createdAt: serverTimestamp(),
     });
@@ -131,8 +146,11 @@ export const sendMessage = async (messageData: Omit<Message, 'createdAt'>) => {
     // Update chat's lastMessage and updatedAt
     const chatRef = doc(db, 'chats', messageData.chatId);
     await updateDoc(chatRef, {
-      lastMessage: messageData.text,
-      lastMessageAt: serverTimestamp(),
+      lastMessage: {
+        text: messageData.text,
+        at: serverTimestamp(),
+        by: messageData.by
+      },
       updatedAt: serverTimestamp(),
     });
     
@@ -145,10 +163,10 @@ export const sendMessage = async (messageData: Omit<Message, 'createdAt'>) => {
 
 export const getMessagesByChat = async (chatId: string) => {
   try {
-    const messagesRef = collection(db, 'messages');
+    // Get messages from chat subcollection
+    const messagesRef = collection(db, 'chats', chatId, 'messages');
     const q = query(
       messagesRef, 
-      where('chatId', '==', chatId),
       orderBy('createdAt', 'asc')
     );
     const querySnapshot = await getDocs(q);

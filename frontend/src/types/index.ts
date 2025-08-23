@@ -50,6 +50,7 @@ export interface Invite {
 export interface Chat {
   proId: string;
   createdBy: string; // uid
+  title?: string; // optional chat title
   lastMessage?: {
     text: string;
     at: Timestamp;
@@ -57,6 +58,7 @@ export interface Chat {
   };
   members: string[]; // array of uids (size-limited)
   createdAt: Timestamp;
+  updatedAt?: Timestamp; // optional for backward compatibility
 }
 
 export interface Message {

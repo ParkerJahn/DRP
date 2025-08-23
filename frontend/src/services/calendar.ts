@@ -7,7 +7,6 @@ import {
   query, 
   where, 
   getDocs,
-  orderBy,
   serverTimestamp,
   addDoc
 } from 'firebase/firestore';
@@ -77,8 +76,8 @@ export const getEventsByPro = async (proId: string) => {
     const eventsRef = collection(db, 'events');
     const q = query(
       eventsRef, 
-      where('proId', '==', proId),
-      orderBy('startsAt', 'asc')
+      where('proId', '==', proId)
+      // Removed orderBy to avoid composite index requirement
     );
     const querySnapshot = await getDocs(q);
     
@@ -86,6 +85,9 @@ export const getEventsByPro = async (proId: string) => {
     querySnapshot.forEach((doc) => {
       events.push({ id: doc.id, ...doc.data() } as Event & { id: string });
     });
+    
+    // Sort client-side instead
+    events.sort((a, b) => a.startsAt.toDate().getTime() - b.startsAt.toDate().getTime());
     
     return { success: true, events };
   } catch (error) {
@@ -100,8 +102,8 @@ export const getEventsByAttendee = async (attendeeUid: string) => {
     const eventsRef = collection(db, 'events');
     const q = query(
       eventsRef, 
-      where('attendees', 'array-contains', attendeeUid),
-      orderBy('startsAt', 'asc')
+      where('attendees', 'array-contains', attendeeUid)
+      // Removed orderBy to avoid composite index requirement
     );
     const querySnapshot = await getDocs(q);
     
@@ -109,6 +111,9 @@ export const getEventsByAttendee = async (attendeeUid: string) => {
     querySnapshot.forEach((doc) => {
       events.push({ id: doc.id, ...doc.data() } as Event & { id: string });
     });
+    
+    // Sort client-side instead
+    events.sort((a, b) => a.startsAt.toDate().getTime() - b.startsAt.toDate().getTime());
     
     return { success: true, events };
   } catch (error) {
@@ -124,8 +129,8 @@ export const getEventsByType = async (proId: string, type: EventType) => {
     const q = query(
       eventsRef, 
       where('proId', '==', proId),
-      where('type', '==', type),
-      orderBy('startsAt', 'asc')
+      where('type', '==', type)
+      // Removed orderBy to avoid composite index requirement
     );
     const querySnapshot = await getDocs(q);
     
@@ -133,6 +138,9 @@ export const getEventsByType = async (proId: string, type: EventType) => {
     querySnapshot.forEach((doc) => {
       events.push({ id: doc.id, ...doc.data() } as Event & { id: string });
     });
+    
+    // Sort client-side instead
+    events.sort((a, b) => a.startsAt.toDate().getTime() - b.startsAt.toDate().getTime());
     
     return { success: true, events };
   } catch (error) {
@@ -149,9 +157,8 @@ export const getUpcomingEvents = async (proId: string, limit = 10) => {
     const q = query(
       eventsRef, 
       where('proId', '==', proId),
-      where('startsAt', '>=', now),
-      orderBy('startsAt', 'asc'),
-      orderBy('createdAt', 'desc')
+      where('startsAt', '>=', now)
+      // Removed orderBy to avoid composite index requirement
     );
     const querySnapshot = await getDocs(q);
     
@@ -159,6 +166,9 @@ export const getUpcomingEvents = async (proId: string, limit = 10) => {
     querySnapshot.forEach((doc) => {
       events.push({ id: doc.id, ...doc.data() } as Event & { id: string });
     });
+    
+    // Sort client-side instead
+    events.sort((a, b) => a.startsAt.toDate().getTime() - b.startsAt.toDate().getTime());
     
     return { success: true, events: events.slice(0, limit) };
   } catch (error) {
@@ -175,8 +185,8 @@ export const getEventsInRange = async (proId: string, startDate: Date, endDate: 
       eventsRef, 
       where('proId', '==', proId),
       where('startsAt', '>=', startDate),
-      where('startsAt', '<=', endDate),
-      orderBy('startsAt', 'asc')
+      where('startsAt', '<=', endDate)
+      // Removed orderBy to avoid composite index requirement
     );
     const querySnapshot = await getDocs(q);
     
@@ -184,6 +194,9 @@ export const getEventsInRange = async (proId: string, startDate: Date, endDate: 
     querySnapshot.forEach((doc) => {
       events.push({ id: doc.id, ...doc.data() } as Event & { id: string });
     });
+    
+    // Sort client-side instead
+    events.sort((a, b) => a.startsAt.toDate().getTime() - b.startsAt.toDate().getTime());
     
     return { success: true, events };
   } catch (error) {

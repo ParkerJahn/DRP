@@ -106,6 +106,7 @@ function Header() {
             calendar: "📅",
             programs: "💪",
             payments: "💰",
+  packages: "📦",
             menu: "☰",
             close: "✕",
             sun: "☀️",
@@ -131,6 +132,7 @@ function Header() {
                 { path: '/app/messages', label: 'Messages', icon: 'messages' },
                 { path: '/app/calendar', label: 'Calendar', icon: 'calendar' },
                 { path: '/app/payments', label: 'Payments', icon: 'payments' },
+                { path: '/app/packages', label: 'Packages', icon: 'packages' },
                 { path: '/app/programs', label: 'SWEATsheet', icon: 'programs' },
             ];
         }
@@ -141,6 +143,7 @@ function Header() {
                 { path: '/app/team', label: 'Your Team', icon: 'team' },
                 { path: '/app/messages', label: 'Messages', icon: 'messages' },
                 { path: '/app/calendar', label: 'Calendar', icon: 'calendar' },
+                { path: '/app/packages', label: 'Packages', icon: 'packages' },
                 { path: '/app/programs', label: 'SWEATsheet', icon: 'programs' },
             ];
         }
@@ -152,6 +155,7 @@ function Header() {
             { path: '/app/calendar', label: 'Calendar', icon: 'calendar' },
             { path: '/app/programs', label: 'SWEATsheet', icon: 'programs' },
             { path: '/app/payments', label: 'Payments', icon: 'payments' },
+            { path: '/app/packages', label: 'Packages', icon: 'packages' },
         ];
     };
 

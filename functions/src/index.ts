@@ -206,6 +206,211 @@ export const createProUpgradeCheckout = onRequest({
   }
 });
 
+// Training Session Payment Function - Creates Stripe checkout session
+export const createTrainingSessionCheckout = onRequest({
+  cors: true,
+  maxInstances: 5,
+  memory: '256MiB',
+  timeoutSeconds: 30
+}, async (request, response) => {
+  // Handle CORS preflight
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set('Access-Control-Allow-Methods', 'GET, POST');
+  response.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  if (request.method === 'OPTIONS') {
+    response.status(204).send('');
+    return;
+  }
+
+  try {
+    // Verify user is authenticated
+    const userId = await verifyFirebaseToken(request.headers.authorization || '');
+    
+    // Get request body
+    const { proId, amount, currency, sessionType, sessionDate, description } = request.body;
+    
+    if (!proId || !amount || !currency || !sessionType) {
+      response.status(400).json({ error: 'Missing required fields' });
+      return;
+    }
+
+    // Verify the PRO exists and is active
+    const proDoc = await db.collection('users').doc(proId).get();
+    if (!proDoc.exists || proDoc.data()?.proStatus !== 'active') {
+      response.status(400).json({ error: 'PRO account not found or inactive' });
+      return;
+    }
+
+    // Initialize Stripe
+    const stripe = new Stripe(stripeSecretKey.value(), {
+      apiVersion: '2025-07-30.basil',
+    });
+
+    logger.info('Creating training session checkout for user:', userId, 'to PRO:', proId);
+
+    // Create Stripe checkout session
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: currency.toLowerCase(),
+            product_data: {
+              name: `${sessionType} Session`,
+              description: description || `Training session with ${proDoc.data()?.displayName || 'PRO'}`,
+            },
+            unit_amount: amount, // amount in cents
+          },
+          quantity: 1,
+        },
+      ],
+      mode: 'payment', // One-time payment
+      success_url: `${appBaseUrl.value()}/app/payments?session_id={CHECKOUT_SESSION_ID}&status=success`,
+      cancel_url: `${appBaseUrl.value()}/app/payments?status=cancelled`,
+      metadata: {
+        userId: userId,
+        proId: proId,
+        sessionType: sessionType,
+        sessionDate: sessionDate || new Date().toISOString(),
+        paymentType: 'training_session'
+      },
+    });
+
+    logger.info('Training session checkout created successfully:', session.id);
+    
+    response.status(200).json({
+      success: true,
+      checkoutSession: {
+        id: session.id,
+        url: session.url,
+        amount: session.amount_total || amount,
+        currency: session.currency || currency
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error creating training session checkout:', error);
+    if (error instanceof Error && error.message.includes('authorization')) {
+      response.status(401).json({ error: error.message });
+    } else {
+      response.status(500).json({ error: 'Failed to create checkout session' });
+    }
+  }
+});
+
+// Training Package Payment Function - Creates Stripe checkout session
+export const createPackageCheckout = onRequest({
+  cors: true,
+  maxInstances: 5,
+  memory: '256MiB',
+  timeoutSeconds: 30
+}, async (request, response) => {
+  // Handle CORS preflight
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set('Access-Control-Allow-Methods', 'GET, POST');
+  response.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  if (request.method === 'OPTIONS') {
+    response.status(204).send('');
+    return;
+  }
+
+  try {
+    // Verify user is authenticated
+    const userId = await verifyFirebaseToken(request.headers.authorization || '');
+    
+    // Get request body
+    const { packageId } = request.body;
+    
+    if (!packageId) {
+      response.status(400).json({ error: 'Package ID is required' });
+      return;
+    }
+
+    // Get package details
+    const packageDoc = await db.collection('trainingPackages').doc(packageId).get();
+    if (!packageDoc.exists) {
+      response.status(400).json({ error: 'Package not found' });
+      return;
+    }
+
+    const packageData = packageDoc.data();
+    if (packageData?.status !== 'active') {
+      response.status(400).json({ error: 'Package is not available for purchase' });
+      return;
+    }
+
+    // Check if package has reached max purchases
+    if (packageData.maxPurchases && packageData.currentPurchases >= packageData.maxPurchases) {
+      response.status(400).json({ error: 'Package is sold out' });
+      return;
+    }
+
+    // Verify the PRO exists and is active
+    const proDoc = await db.collection('users').doc(packageData.proId).get();
+    if (!proDoc.exists || proDoc.data()?.proStatus !== 'active') {
+      response.status(400).json({ error: 'PRO account not found or inactive' });
+      return;
+    }
+
+    // Initialize Stripe
+    const stripe = new Stripe(stripeSecretKey.value(), {
+      apiVersion: '2025-07-30.basil',
+    });
+
+    logger.info('Creating package checkout for user:', userId, 'package:', packageId);
+
+    // Create Stripe checkout session
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: packageData.currency.toLowerCase(),
+            product_data: {
+              name: packageData.name,
+              description: packageData.description,
+              images: packageData.imageUrl ? [packageData.imageUrl] : undefined,
+            },
+            unit_amount: packageData.price, // amount in cents
+          },
+          quantity: 1,
+        },
+      ],
+      mode: 'payment', // One-time payment
+      success_url: `${appBaseUrl.value()}/app/packages?session_id={CHECKOUT_SESSION_ID}&status=success`,
+      cancel_url: `${appBaseUrl.value()}/app/packages?status=cancelled`,
+      metadata: {
+        userId: userId,
+        packageId: packageId,
+        proId: packageData.proId,
+        paymentType: 'training_package'
+      },
+    });
+
+    logger.info('Package checkout created successfully:', session.id);
+    
+    response.status(200).json({
+      success: true,
+      checkoutSession: {
+        id: session.id,
+        url: session.url,
+        amount: session.amount_total || packageData.price,
+        currency: session.currency || packageData.currency
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error creating package checkout:', error);
+    if (error instanceof Error && error.message.includes('authorization')) {
+      response.status(401).json({ error: error.message });
+    } else {
+      response.status(500).json({ error: 'Failed to create checkout session' });
+    }
+  }
+});
+
 // Stripe Webhook Handler - Processes successful payments
 export const stripeWebhook = onRequest({
   maxInstances: 5,
@@ -242,6 +447,7 @@ export const stripeWebhook = onRequest({
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session;
       const userId = session.metadata?.userId;
+      const paymentType = session.metadata?.paymentType;
       
       if (!userId) {
         logger.error('No userId in session metadata');
@@ -249,35 +455,138 @@ export const stripeWebhook = onRequest({
         return;
       }
 
-      logger.info('Payment completed for user:', userId);
+      logger.info('Payment completed for user:', userId, 'type:', paymentType);
       
-      // Update user to PRO status and set custom claims
-      try {
-        // Update Firestore user document
-        await db.collection('users').doc(userId).update({
-          proStatus: 'active',
-          updatedAt: new Date()
-        });
+      if (paymentType === 'training_session') {
+        // Handle training session payment
+        const proId = session.metadata?.proId;
+        const sessionType = session.metadata?.sessionType;
+        const sessionDate = session.metadata?.sessionDate;
+        
+        if (!proId) {
+          logger.error('No proId in training session metadata');
+          response.status(400).send('Missing proId in metadata');
+          return;
+        }
 
-        // Set custom claims for role-based access
-        await getAuth().setCustomUserClaims(userId, {
-          role: 'PRO',
-          proId: userId
-        });
+        try {
+          // Create payment record in Firestore
+          await db.collection('payments').add({
+            proId: proId,
+            payerUid: userId,
+            amount: session.amount_total || 0,
+            currency: session.currency || 'usd',
+            stripePaymentIntentId: session.payment_intent as string,
+            status: 'succeeded',
+            sessionType: sessionType,
+            sessionDate: sessionDate ? new Date(sessionDate) : new Date(),
+            description: `${sessionType} Session Payment`,
+            createdAt: new Date()
+          });
 
-        // Create team document
-        await db.collection('teams').doc(userId).set({
-          proId: userId,
-          name: 'My Team',
-          membersCount: { staff: 0, athlete: 0 },
-          createdAt: new Date(),
-          updatedAt: new Date()
-        });
+          logger.info('Training session payment recorded successfully for user:', userId);
+        } catch (dbError) {
+          logger.error('Failed to record training session payment:', dbError);
+          // Don't fail the webhook - we can retry later
+        }
+      } else if (paymentType === 'training_package') {
+        // Handle training package payment
+        const packageId = session.metadata?.packageId;
+        const proId = session.metadata?.proId;
+        
+        if (!packageId || !proId) {
+          logger.error('Missing packageId or proId in training package metadata');
+          response.status(400).send('Missing package metadata');
+          return;
+        }
 
-        logger.info('User successfully upgraded to PRO:', userId);
-      } catch (dbError) {
-        logger.error('Failed to update user data:', dbError);
-        // Don't fail the webhook - we can retry later
+        try {
+          // Get package details
+          const packageDoc = await db.collection('trainingPackages').doc(packageId).get();
+          if (!packageDoc.exists) {
+            logger.error('Package not found:', packageId);
+            return;
+          }
+
+          const packageData = packageDoc.data();
+          if (!packageData) {
+            logger.error('Package data is undefined');
+            return;
+          }
+          
+          // Create payment record in Firestore
+          const paymentRef = await db.collection('payments').add({
+            proId: proId,
+            payerUid: userId,
+            amount: session.amount_total || 0,
+            currency: session.currency || 'usd',
+            stripePaymentIntentId: session.payment_intent as string,
+            status: 'succeeded',
+            description: packageData.name,
+            packageId: packageId,
+            packageName: packageData.name,
+            createdAt: new Date()
+          });
+
+          // Create package purchase record
+          const expiryDate = packageData.validDays 
+            ? new Date(Date.now() + packageData.validDays * 24 * 60 * 60 * 1000)
+            : undefined;
+
+          await db.collection('packagePurchases').add({
+            packageId: packageId,
+            proId: proId,
+            athleteUid: userId,
+            purchaseDate: new Date(),
+            expiryDate: expiryDate,
+            sessionsRemaining: packageData.sessions,
+            status: 'active',
+            paymentId: paymentRef.id,
+            amountPaid: session.amount_total || 0,
+            sessionsUsed: 0,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+
+          // Update package purchase count
+          await db.collection('trainingPackages').doc(packageId).update({
+            currentPurchases: (packageData.currentPurchases || 0) + 1
+          });
+
+          logger.info('Training package payment recorded successfully for user:', userId, 'package:', packageId);
+        } catch (dbError) {
+          logger.error('Failed to record training package payment:', dbError);
+          // Don't fail the webhook - we can retry later
+        }
+      } else {
+        // Handle PRO upgrade payment
+        try {
+          // Update user to PRO status and set custom claims
+          await db.collection('users').doc(userId).update({
+            proStatus: 'active',
+            updatedAt: new Date()
+          });
+
+          // Set custom claims for role-based access
+          await getAuth().setCustomUserClaims(userId, {
+            role: 'PRO',
+            proId: userId
+          });
+
+          // Create team document
+          await db.collection('teams').doc(userId).set({
+            proId: userId,
+            name: 'My Team',
+            membersCount: { staff: 0, athlete: 0 },
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+
+          logger.info('User successfully upgraded to PRO:', userId);
+        } catch (dbError) {
+          logger.error('Failed to update user data:', dbError);
+          // Don't fail the webhook - we can retry later
+        }
       }
     }
 

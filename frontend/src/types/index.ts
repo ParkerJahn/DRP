@@ -96,6 +96,78 @@ export interface Payment {
   stripePaymentIntentId: string;
   status: PaymentStatus;
   createdAt: Timestamp;
+  // New fields for enhanced payment tracking
+  sessionType?: string; // 'training' | 'consultation' | 'assessment'
+  sessionDate?: Timestamp; // When the session occurred
+  subscriptionType?: string; // 'monthly' | 'quarterly' | 'yearly'
+  interval?: 'monthly' | 'quarterly' | 'yearly';
+  description?: string; // Payment description
+  metadata?: Record<string, unknown>; // Additional payment data
+  // Package-related fields
+  packageId?: string; // Reference to purchased package
+  packageName?: string; // Name of the package for display
+}
+
+// Custom Training Packages
+export type PackageType = 'single_session' | 'multi_session' | 'subscription' | 'custom';
+export type PackageStatus = 'active' | 'inactive' | 'archived';
+
+export interface TrainingPackage {
+  id?: string; // Firestore document id
+  proId: string; // PRO who created the package
+  name: string; // Package name
+  description: string; // Detailed description
+  type: PackageType;
+  status: PackageStatus;
+  
+  // Pricing
+  price: number; // in cents
+  currency: string;
+  originalPrice?: number; // for discounted packages
+  
+  // Package contents
+  sessions: number; // Number of sessions included
+  sessionDuration?: number; // Duration in minutes
+  validDays?: number; // Days package is valid after purchase
+  
+  // Features
+  features: string[]; // List of features included
+  includesEquipment?: boolean;
+  includesNutrition?: boolean;
+  includesAssessment?: boolean;
+  
+  // Availability
+  maxPurchases?: number; // Maximum number of times this package can be purchased
+  currentPurchases: number; // Current number of purchases
+  
+  // Metadata
+  tags?: string[]; // For categorization
+  imageUrl?: string; // Package image
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+// Package Purchase Record
+export interface PackagePurchase {
+  id?: string; // Firestore document id
+  packageId: string; // Reference to the package
+  proId: string; // PRO who created the package
+  athleteUid: string; // Athlete who purchased
+  purchaseDate: Timestamp;
+  expiryDate?: Timestamp; // When package expires
+  sessionsRemaining: number; // Sessions left to use
+  status: 'active' | 'expired' | 'completed';
+  
+  // Payment info
+  paymentId: string; // Reference to payment record
+  amountPaid: number; // Amount paid in cents
+  
+  // Usage tracking
+  sessionsUsed: number; // Sessions already used
+  lastUsed?: Timestamp;
+  
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 // SWEATsheet Program System

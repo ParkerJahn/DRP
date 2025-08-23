@@ -17,6 +17,7 @@ import Messages from './pages/Messages';
 import Calendar from './pages/Calendar';
 import Programs from './pages/Programs';
 import Payments from './pages/Payments';
+import Packages from './pages/Packages';
 import { ROUTES } from './config/routes';
 import darkLogo from '/darkmodelogo.png';
 
@@ -92,7 +93,10 @@ function AppContent() {
             <Route path="/app/team" element={<TeamManagement />} />
           )}
           {(role === 'PRO' || role === 'ATHLETE') && (
-            <Route path="/app/payments" element={<Payments />} />
+            <>
+              <Route path="/app/payments" element={<Payments />} />
+              <Route path="/app/packages" element={<Packages />} />
+            </>
           )}
           <Route path="*" element={<Navigate to={ROUTES.DASHBOARD} replace />} />
         </Routes>

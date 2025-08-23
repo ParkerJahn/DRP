@@ -11,6 +11,8 @@ import {
 } from '../services/packages';
 import { createPackageCheckout, redirectToCheckout } from '../services/stripe';
 import type { TrainingPackage, PackagePurchase, PackageStatus, PackageType } from '../types';
+import { getTeamMembers } from '../services/firebase';
+import type { User } from '../types';
 
 const Packages: React.FC = () => {
   const { user } = useAuth();
@@ -26,11 +28,21 @@ const Packages: React.FC = () => {
     totalPurchases: 0
   });
 
+  // State for team members (for display purposes)
+  const [teamMembers, setTeamMembers] = useState<Array<{ uid: string; displayName: string; role: string }>>([]);
+
+  // Helper function to get member name from UID
+  const getMemberName = (uid: string): string => {
+    const member = teamMembers.find(m => m.uid === uid);
+    return member ? member.displayName : uid;
+  };
+
   useEffect(() => {
     if (user) {
       loadPackages();
       if (user.role === 'PRO') {
         loadPackageAnalytics();
+        loadTeamMembers();
       } else if (user.role === 'ATHLETE') {
         loadAthletePackages();
       }
@@ -83,6 +95,35 @@ const Packages: React.FC = () => {
     }
   };
 
+  const loadTeamMembers = async () => {
+    if (!user?.proId && user?.role === 'PRO') {
+      // If user is PRO but no proId, use their uid
+      const proId = user.uid;
+      await fetchTeamMembers(proId);
+    } else if (user?.proId) {
+      await fetchTeamMembers(user.proId);
+    }
+  };
+
+  const fetchTeamMembers = async (proId: string) => {
+    try {
+      const result = await getTeamMembers(proId);
+      if (result.success && result.members) {
+        // Filter to only PRO and STAFF members, and format for dropdown
+        const members = result.members
+          .filter((member: User) => member.role === 'PRO' || member.role === 'STAFF')
+          .map((member: User) => ({
+            uid: member.uid,
+            displayName: member.displayName || member.email || 'Unknown User',
+            role: member.role
+          }));
+        setTeamMembers(members);
+      }
+    } catch (error) {
+      console.error('Error fetching team members:', error);
+    }
+  };
+
   const loadAthletePackages = async () => {
     if (!user || user.role !== 'ATHLETE') return;
     
@@ -98,17 +139,29 @@ const Packages: React.FC = () => {
 
   const handleCreatePackage = async (packageData: Omit<TrainingPackage, 'id' | 'createdAt' | 'updatedAt' | 'currentPurchases'>) => {
     try {
+      console.log('Creating package with data:', packageData);
+      console.log('Current user:', user);
+      console.log('User proId:', user?.proId);
+      console.log('User uid:', user?.uid);
+      
+      // Fix: Use user's UID if proId is null
+      if (!packageData.proId || packageData.proId === '') {
+        packageData.proId = user?.uid || '';
+        console.log('Fixed proId to use user uid:', packageData.proId);
+      }
+      
       const result = await createTrainingPackage(packageData);
       if (result.success) {
         setIsCreatingPackage(false);
         loadPackages();
         loadPackageAnalytics();
       } else {
-        throw new Error('Failed to create package');
+        throw new Error(result.error || 'Failed to create package');
       }
     } catch (error) {
       console.error('Error creating package:', error);
-      alert('Failed to create package. Please try again.');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create package. Please try again.';
+      alert(errorMessage);
     }
   };
 
@@ -351,23 +404,13 @@ const Packages: React.FC = () => {
                     <p>Sessions: {pkg.sessions}</p>
                     {pkg.sessionDuration && <p>Duration: {pkg.sessionDuration} min</p>}
                     {pkg.validDays && <p>Valid for: {pkg.validDays} days</p>}
+                    {pkg.assignedTo && <p>Assigned to: {getMemberName(pkg.assignedTo)}</p>}
                     <p className="text-lg font-semibold text-gray-900 dark:text-white">
                       {formatAmount(pkg.price, pkg.currency)}
                     </p>
                   </div>
                   
-                  {pkg.features.length > 0 && (
-                    <div className="mb-4">
-                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Features:</p>
-                      <div className="flex flex-wrap gap-1">
-                        {pkg.features.map((feature, index) => (
-                          <span key={index} className="px-2 py-1 bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 text-xs rounded">
-                            {feature}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+
                   
                   <div className="flex gap-2">
                     {canPurchasePackages && pkg.status === 'active' && (
@@ -415,6 +458,7 @@ const Packages: React.FC = () => {
             handleCreatePackage
           }
           package={isEditingPackage ? packages.find(p => p.id === isEditingPackage) : undefined}
+          currentUser={user}
         />
       )}
     </div>
@@ -426,9 +470,10 @@ interface PackageModalProps {
   onClose: () => void;
   onSubmit: (packageData: Omit<TrainingPackage, 'id' | 'createdAt' | 'updatedAt' | 'currentPurchases'>) => void;
   package?: TrainingPackage & { id: string };
+  currentUser: { uid: string; role: string; proId?: string };
 }
 
-const PackageModal: React.FC<PackageModalProps> = ({ onClose, onSubmit, package: editPackage }) => {
+const PackageModal: React.FC<PackageModalProps> = ({ onClose, onSubmit, package: editPackage, currentUser }) => {
   const [formData, setFormData] = useState({
     name: editPackage?.name || '',
     description: editPackage?.description || '',
@@ -439,14 +484,51 @@ const PackageModal: React.FC<PackageModalProps> = ({ onClose, onSubmit, package:
     sessions: editPackage?.sessions?.toString() || '1',
     sessionDuration: editPackage?.sessionDuration?.toString() || '',
     validDays: editPackage?.validDays?.toString() || '',
-    features: editPackage?.features || [''],
-    includesEquipment: editPackage?.includesEquipment || false,
-    includesNutrition: editPackage?.includesNutrition || false,
-    includesAssessment: editPackage?.includesAssessment || false,
     maxPurchases: editPackage?.maxPurchases?.toString() || '',
-    tags: editPackage?.tags || [''],
-    imageUrl: editPackage?.imageUrl || ''
+    assignedTo: editPackage?.assignedTo || '' // New field for assigning PRO/STAFF
   });
+
+  // State for team members dropdown
+  const [teamMembers, setTeamMembers] = useState<Array<{ uid: string; displayName: string; role: string }>>([]);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+
+  // Fetch team members when modal opens
+  useEffect(() => {
+    const loadTeamMembers = async () => {
+      if (!currentUser?.proId && currentUser?.role === 'PRO') {
+        // If user is PRO but no proId, use their uid
+        const proId = currentUser.uid;
+        await fetchTeamMembers(proId);
+      } else if (currentUser?.proId) {
+        await fetchTeamMembers(currentUser.proId);
+      }
+    };
+
+    loadTeamMembers();
+  }, [currentUser]);
+
+  const fetchTeamMembers = async (proId: string) => {
+    setIsLoadingMembers(true);
+    try {
+      const result = await getTeamMembers(proId);
+      if (result.success && result.members) {
+        // Filter to only PRO and STAFF members, and format for dropdown
+        const members = result.members
+          .filter((member: User) => member.role === 'PRO' || member.role === 'STAFF')
+          .map((member: User) => ({
+            uid: member.uid,
+            displayName: member.displayName || member.email || 'Unknown User',
+            role: member.role
+          }));
+        setTeamMembers(members);
+      }
+    } catch (error) {
+      console.error('Error fetching team members:', error);
+    } finally {
+      setIsLoadingMembers(false);
+    }
+  };
+
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -456,10 +538,11 @@ const PackageModal: React.FC<PackageModalProps> = ({ onClose, onSubmit, package:
       return;
     }
 
-    onSubmit({
+    // Prepare package data, converting empty strings to appropriate values
+    const packageData = {
       proId: editPackage?.proId || '',
-      name: formData.name,
-      description: formData.description,
+      name: formData.name.trim(),
+      description: formData.description.trim(),
       type: formData.type,
       status: formData.status,
       price: Math.round(parseFloat(formData.price) * 100), // Convert to cents
@@ -467,48 +550,11 @@ const PackageModal: React.FC<PackageModalProps> = ({ onClose, onSubmit, package:
       sessions: parseInt(formData.sessions),
       sessionDuration: formData.sessionDuration ? parseInt(formData.sessionDuration) : undefined,
       validDays: formData.validDays ? parseInt(formData.validDays) : undefined,
-      features: formData.features.filter(f => f.trim() !== ''),
-      includesEquipment: formData.includesEquipment,
-      includesNutrition: formData.includesNutrition,
-      includesAssessment: formData.includesAssessment,
       maxPurchases: formData.maxPurchases ? parseInt(formData.maxPurchases) : undefined,
-      tags: formData.tags.filter(t => t.trim() !== ''),
-      imageUrl: formData.imageUrl || undefined
-    });
-  };
+      assignedTo: formData.assignedTo.trim() || undefined
+    };
 
-  const addFeature = () => {
-    setFormData({ ...formData, features: [...formData.features, ''] });
-  };
-
-  const removeFeature = (index: number) => {
-    setFormData({ 
-      ...formData, 
-      features: formData.features.filter((_, i) => i !== index) 
-    });
-  };
-
-  const updateFeature = (index: number, value: string) => {
-    const newFeatures = [...formData.features];
-    newFeatures[index] = value;
-    setFormData({ ...formData, features: newFeatures });
-  };
-
-  const addTag = () => {
-    setFormData({ ...formData, tags: [...formData.tags, ''] });
-  };
-
-  const removeTag = (index: number) => {
-    setFormData({ 
-      ...formData, 
-      tags: formData.tags.filter((_, i) => i !== index) 
-    });
-  };
-
-  const updateTag = (index: number, value: string) => {
-    const newTags = [...formData.tags];
-    newTags[index] = value;
-    setFormData({ ...formData, tags: newTags });
+    onSubmit(packageData);
   };
 
   return (
@@ -645,113 +691,30 @@ const PackageModal: React.FC<PackageModalProps> = ({ onClose, onSubmit, package:
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Features
+              Assign To (PRO/STAFF Member)
             </label>
-            <div className="space-y-2">
-              {formData.features.map((feature, index) => (
-                <div key={index} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={feature}
-                    onChange={(e) => updateFeature(index, e.target.value)}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-neutral-700 dark:text-white"
-                    placeholder="e.g., Personal training, Nutrition guidance"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeFeature(index)}
-                    className="px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={addFeature}
-                className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
-              >
-                + Add Feature
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Tags
-            </label>
-            <div className="space-y-2">
-              {formData.tags.map((tag, index) => (
-                <div key={index} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={tag}
-                    onChange={(e) => updateTag(index, e.target.value)}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-neutral-700 dark:text-white"
-                    placeholder="e.g., strength, beginner, cardio"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeTag(index)}
-                    className="px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={addTag}
-                className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
-              >
-                + Add Tag
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <label className="flex items-center">
-              <input
-                type="checkbox"
-                checked={formData.includesEquipment}
-                onChange={(e) => setFormData({ ...formData, includesEquipment: e.target.checked })}
-                className="mr-2"
-              />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Includes Equipment</span>
-            </label>
-
-            <label className="flex items-center">
-              <input
-                type="checkbox"
-                checked={formData.includesNutrition}
-                onChange={(e) => setFormData({ ...formData, includesNutrition: e.target.checked })}
-                className="mr-2"
-              />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Includes Nutrition</span>
-            </label>
-
-            <label className="flex items-center">
-              <input
-                type="checkbox"
-                checked={formData.includesAssessment}
-                onChange={(e) => setFormData({ ...formData, includesAssessment: e.target.checked })}
-                className="mr-2"
-              />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Includes Assessment</span>
-            </label>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Image URL
-            </label>
-            <input
-              type="url"
-              value={formData.imageUrl}
-              onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+            <select
+              value={formData.assignedTo}
+              onChange={(e) => setFormData({ ...formData, assignedTo: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-neutral-700 dark:text-white"
-              placeholder="https://example.com/image.jpg"
-            />
+              disabled={isLoadingMembers}
+            >
+              <option value="">Select a member</option>
+              {isLoadingMembers ? (
+                <option value="">Loading members...</option>
+              ) : teamMembers.length === 0 ? (
+                <option value="">No PRO or STAFF members found.</option>
+              ) : (
+                teamMembers.map(member => (
+                  <option key={member.uid} value={member.uid}>
+                    {member.displayName} ({member.role})
+                  </option>
+                ))
+              )}
+            </select>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              Leave blank to assign to yourself, or select a PRO or STAFF member
+            </p>
           </div>
 
           <div className="flex justify-end gap-2 pt-4">

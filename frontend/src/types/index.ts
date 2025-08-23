@@ -130,19 +130,14 @@ export interface TrainingPackage {
   sessionDuration?: number; // Duration in minutes
   validDays?: number; // Days package is valid after purchase
   
-  // Features
-  features: string[]; // List of features included
-  includesEquipment?: boolean;
-  includesNutrition?: boolean;
-  includesAssessment?: boolean;
+  // Assignment
+  assignedTo?: string; // PRO or STAFF member assigned to this package
   
   // Availability
   maxPurchases?: number; // Maximum number of times this package can be purchased
   currentPurchases: number; // Current number of purchases
   
   // Metadata
-  tags?: string[]; // For categorization
-  imageUrl?: string; // Package image
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

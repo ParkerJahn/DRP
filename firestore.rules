@@ -110,9 +110,14 @@ service cloud.firestore {
         (isPro() && resource.data.proId == uid()) || // PRO can read their team events
         (isAthlete() && uid() in resource.data.attendees) // Athletes can see events they're in
       );
-      allow create, update, delete: if isSignedIn() && (
+      allow create, update: if isSignedIn() && (
         (isProOrStaff() && proId() == request.resource.data.proId) || // Team members can manage events
         (isPro() && request.resource.data.proId == uid()) // PRO can manage their team events
+      );
+      allow delete: if isSignedIn() && (
+        (isProOrStaff() && proId() == resource.data.proId) || // Team members can delete events
+        (isPro() && resource.data.proId == uid()) || // PRO can delete their team events
+        (resource.data.createdBy == uid()) // Creator can always delete their own events
       );
     }
 
@@ -159,8 +164,69 @@ service cloud.firestore {
         (isPro() && request.resource.data.createdBy == uid()) // PRO can create exercises for their team
       );
       allow update, delete: if isSignedIn() && (
-        (isProOrStaff() && proId() == resource.data.proId) || // Team members can manage team exercises
+        (isProOrStaff() && resource.data.proId == proId()) || // Team members can manage team exercises
         (isPro() && resource.data.createdBy == uid()) // PRO can manage exercises they created
+      );
+    }
+
+    // Training Packages collection - PRO creates, athletes can read available ones
+    match /trainingPackages/{packageId} {
+      allow read: if isSignedIn() && (
+        (isTeamMember() && proId() == resource.data.proId) || // Team members can read team packages
+        (isPro() && resource.data.proId == uid()) || // PRO can read their own packages
+        (isPro() && uid() == resource.data.proId) || // PRO can read packages where they are the proId
+        (isPro() && resource.data.proId == uid()) || // PRO can read packages they created
+        (isAthlete() && resource.data.status == 'active') // Athletes can see active packages
+      );
+      allow create, update, delete: if isSignedIn() && (
+        (isPro() && request.resource.data.proId == uid()) || // Only PRO can manage their packages
+        (isPro() && uid() == request.resource.data.proId) || // PRO can manage packages where they are the proId
+        (isPro() && request.resource.data.proId == uid()) // PRO can manage packages they're creating
+      );
+    }
+
+    // Package Purchases collection - athletes can read their own, PRO can read team purchases
+    match /packagePurchases/{purchaseId} {
+      allow read: if isSignedIn() && (
+        (isTeamMember() && proId() == resource.data.proId) || // Team members can read team purchases
+        (isPro() && resource.data.proId == uid()) || // PRO can read their team purchases
+        (isAthlete() && resource.data.athleteUid == uid()) // Athletes can see their own purchases
+      );
+      allow create, update: if isSignedIn() && (
+        (isAthlete() && request.resource.data.athleteUid == uid()) || // Athletes can create/update their purchases
+        (isPro() && request.resource.data.proId == uid()) // PRO can manage team purchases
+      );
+      allow delete: if false; // No deletions allowed
+    }
+
+    // Availability Slots collection - PRO and STAFF can manage their availability
+    match /availabilitySlots/{slotId} {
+      allow read: if isSignedIn() && (
+        (isTeamMember() && proId() == resource.data.proId) || // Team members can read team availability
+        (isPro() && resource.data.proId == uid()) || // PRO can read their team availability
+        (isStaff() && resource.data.userId == uid()) || // STAFF can read their own availability
+        (isAthlete() && proId() == resource.data.proId) // Athletes can see team availability for booking
+      );
+      allow create, update: if isSignedIn() && (
+        (isPro() && request.resource.data.proId == uid()) || // PRO can manage team availability
+        (isStaff() && request.resource.data.userId == uid() && request.resource.data.proId == proId()) // STAFF can manage their own availability
+      );
+      allow delete: if isSignedIn() && (
+        (isPro() && resource.data.proId == uid()) || // PRO can delete team availability
+        (isStaff() && resource.data.userId == uid()) // STAFF can delete their own availability
+      );
+    }
+
+    // Availability Templates collection - PRO and STAFF can create reusable templates
+    match /availabilityTemplates/{templateId} {
+      allow read: if isSignedIn() && (
+        (isTeamMember() && proId() == resource.data.proId) || // Team members can read team templates
+        (isPro() && resource.data.proId == uid()) || // PRO can read their team templates
+        (isStaff() && resource.data.userId == uid()) // STAFF can read their own templates
+      );
+      allow create, update, delete: if isSignedIn() && (
+        (isPro() && request.resource.data.proId == uid()) || // PRO can manage team templates
+        (isStaff() && request.resource.data.userId == uid() && request.resource.data.proId == proId()) // STAFF can manage their own templates
       );
     }
 

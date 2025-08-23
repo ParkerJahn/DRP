@@ -18,8 +18,20 @@ import type { TrainingPackage, PackagePurchase, PackageStatus } from '../types';
 // Create a new training package
 export const createTrainingPackage = async (packageData: Omit<TrainingPackage, 'id' | 'createdAt' | 'updatedAt' | 'currentPurchases'>) => {
   try {
+    // Validate required fields
+    if (!packageData.proId) {
+      return { success: false, error: 'PRO ID is required' };
+    }
+    
+    // Clean up the data to remove undefined values
+    const cleanPackageData = Object.fromEntries(
+      Object.entries(packageData).filter(([, value]) => value !== undefined)
+    );
+    
+    console.log('Clean package data:', cleanPackageData);
+    
     const packageRef = await addDoc(collection(db, 'trainingPackages'), {
-      ...packageData,
+      ...cleanPackageData,
       currentPurchases: 0,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -28,7 +40,10 @@ export const createTrainingPackage = async (packageData: Omit<TrainingPackage, '
     return { success: true, packageId: packageRef.id };
   } catch (error) {
     console.error('Error creating training package:', error);
-    return { success: false, error };
+    if (error instanceof Error) {
+      return { success: false, error: error.message };
+    }
+    return { success: false, error: 'Unknown error occurred' };
   }
 };
 
@@ -77,9 +92,14 @@ export const getPackageById = async (packageId: string) => {
 // Update package
 export const updateTrainingPackage = async (packageId: string, updates: Partial<TrainingPackage>) => {
   try {
+    // Clean up the updates to remove undefined values
+    const cleanUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([, value]) => value !== undefined)
+    );
+    
     const packageRef = doc(db, 'trainingPackages', packageId);
     await updateDoc(packageRef, {
-      ...updates,
+      ...cleanUpdates,
       updatedAt: serverTimestamp(),
     });
     return { success: true };

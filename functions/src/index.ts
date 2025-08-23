@@ -8,7 +8,7 @@
  */
 
 import {setGlobalOptions} from "firebase-functions";
-import {onRequest} from "firebase-functions/v2/https";
+import {onRequest, onCall} from "firebase-functions/v2/https";
 
 import * as logger from "firebase-functions/logger";
 import {initializeApp} from "firebase-admin/app";
@@ -207,39 +207,29 @@ export const createProUpgradeCheckout = onRequest({
 });
 
 // Training Session Payment Function - Creates Stripe checkout session
-export const createTrainingSessionCheckout = onRequest({
-  cors: true,
+export const createTrainingSessionCheckout = onCall({
   maxInstances: 5,
   memory: '256MiB',
   timeoutSeconds: 30
-}, async (request, response) => {
-  // Handle CORS preflight
-  response.set('Access-Control-Allow-Origin', '*');
-  response.set('Access-Control-Allow-Methods', 'GET, POST');
-  response.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
-  if (request.method === 'OPTIONS') {
-    response.status(204).send('');
-    return;
-  }
-
+}, async (request) => {
   try {
     // Verify user is authenticated
-    const userId = await verifyFirebaseToken(request.headers.authorization || '');
+    const userId = request.auth?.uid;
+    if (!userId) {
+      throw new Error('User not authenticated');
+    }
     
-    // Get request body
-    const { proId, amount, currency, sessionType, sessionDate, description } = request.body;
+    // Get request data
+    const { proId, amount, currency, sessionType, sessionDate, description } = request.data;
     
     if (!proId || !amount || !currency || !sessionType) {
-      response.status(400).json({ error: 'Missing required fields' });
-      return;
+      throw new Error('Missing required fields');
     }
 
     // Verify the PRO exists and is active
     const proDoc = await db.collection('users').doc(proId).get();
     if (!proDoc.exists || proDoc.data()?.proStatus !== 'active') {
-      response.status(400).json({ error: 'PRO account not found or inactive' });
-      return;
+      throw new Error('PRO account not found or inactive');
     }
 
     // Initialize Stripe
@@ -279,7 +269,7 @@ export const createTrainingSessionCheckout = onRequest({
 
     logger.info('Training session checkout created successfully:', session.id);
     
-    response.status(200).json({
+    return {
       success: true,
       checkoutSession: {
         id: session.id,
@@ -287,71 +277,54 @@ export const createTrainingSessionCheckout = onRequest({
         amount: session.amount_total || amount,
         currency: session.currency || currency
       }
-    });
+    };
 
   } catch (error) {
     logger.error('Error creating training session checkout:', error);
-    if (error instanceof Error && error.message.includes('authorization')) {
-      response.status(401).json({ error: error.message });
-    } else {
-      response.status(500).json({ error: 'Failed to create checkout session' });
-    }
+    throw new Error(error instanceof Error ? error.message : 'Failed to create checkout session');
   }
 });
 
 // Training Package Payment Function - Creates Stripe checkout session
-export const createPackageCheckout = onRequest({
-  cors: true,
+export const createPackageCheckout = onCall({
   maxInstances: 5,
   memory: '256MiB',
   timeoutSeconds: 30
-}, async (request, response) => {
-  // Handle CORS preflight
-  response.set('Access-Control-Allow-Origin', '*');
-  response.set('Access-Control-Allow-Methods', 'GET, POST');
-  response.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
-  if (request.method === 'OPTIONS') {
-    response.status(204).send('');
-    return;
-  }
-
+}, async (request) => {
   try {
     // Verify user is authenticated
-    const userId = await verifyFirebaseToken(request.headers.authorization || '');
+    const userId = request.auth?.uid;
+    if (!userId) {
+      throw new Error('User not authenticated');
+    }
     
-    // Get request body
-    const { packageId } = request.body;
+    // Get request data
+    const { packageId } = request.data;
     
     if (!packageId) {
-      response.status(400).json({ error: 'Package ID is required' });
-      return;
+      throw new Error('Package ID is required');
     }
 
     // Get package details
     const packageDoc = await db.collection('trainingPackages').doc(packageId).get();
     if (!packageDoc.exists) {
-      response.status(400).json({ error: 'Package not found' });
-      return;
+      throw new Error('Package not found');
     }
 
     const packageData = packageDoc.data();
     if (packageData?.status !== 'active') {
-      response.status(400).json({ error: 'Package is not available for purchase' });
-      return;
+      throw new Error('Package is not available for purchase');
     }
 
     // Check if package has reached max purchases
     if (packageData.maxPurchases && packageData.currentPurchases >= packageData.maxPurchases) {
-      response.status(400).json({ error: 'Package is sold out' });
-      return;
+      throw new Error('Package is sold out');
     }
 
     // Verify the PRO exists and is active
     const proDoc = await db.collection('users').doc(packageData.proId).get();
     if (!proDoc.exists || proDoc.data()?.proStatus !== 'active') {
-      response.status(400).json({ error: 'PRO account not found or inactive' });
-      return;
+      throw new Error('PRO account not found or inactive');
     }
 
     // Initialize Stripe
@@ -391,7 +364,7 @@ export const createPackageCheckout = onRequest({
 
     logger.info('Package checkout created successfully:', session.id);
     
-    response.status(200).json({
+    return {
       success: true,
       checkoutSession: {
         id: session.id,
@@ -399,15 +372,11 @@ export const createPackageCheckout = onRequest({
         amount: session.amount_total || packageData.price,
         currency: session.currency || packageData.currency
       }
-    });
+    };
 
   } catch (error) {
     logger.error('Error creating package checkout:', error);
-    if (error instanceof Error && error.message.includes('authorization')) {
-      response.status(401).json({ error: error.message });
-    } else {
-      response.status(500).json({ error: 'Failed to create checkout session' });
-    }
+    throw new Error(error instanceof Error ? error.message : 'Failed to create checkout session');
   }
 });
 

@@ -315,7 +315,7 @@ const Messages: React.FC = () => {
           {/* Header */}
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex justify-between items-center">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Messages</h2>
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white font-ethnocentric">Messages</h2>
               {canCreateChat && (
                 <button
                   onClick={() => setIsCreatingChat(true)}

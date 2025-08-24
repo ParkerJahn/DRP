@@ -596,7 +596,7 @@ export const Dashboard: React.FC = () => {
             </p>
           </div>
           <div className="text-6xl">
-            {role === 'PRO' ? '💼' : role === 'STAFF' ? '👨‍💼' : '🏃‍♂️'}
+            {role === 'PRO' ? '⭐️' : role === 'STAFF' ? '👨' : '🏃‍♂️'}
           </div>
         </div>
       </div>

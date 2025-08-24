@@ -89,10 +89,8 @@ function AppContent() {
           {(role === 'PRO' || role === 'ATHLETE') && (
             <Route path="/app/programs" element={<Programs />} />
           )}
-          {role === 'PRO' && (
-            <Route path="/app/team" element={<TeamManagement />} />
-          )}
-          {(role === 'PRO' || role === 'ATHLETE') && (
+          <Route path="/app/team" element={<TeamManagement />} />
+          {(role === 'PRO' || role === 'ATHLETE' || role === 'STAFF') && (
             <>
               <Route path="/app/payments" element={<Payments />} />
               <Route path="/app/packages" element={<Packages />} />

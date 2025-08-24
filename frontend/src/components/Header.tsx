@@ -106,7 +106,7 @@ function Header() {
             calendar: "📅",
             programs: "💪",
             payments: "💰",
-  packages: "📦",
+            packages: "📦",
             menu: "☰",
             close: "✕",
             sun: "☀️",
@@ -215,7 +215,7 @@ function Header() {
                     >
                         {/* Header */}
                         <div className="flex justify-between items-center p-4 border-b border-neutral-300 dark:border-neutral-600">
-                            <h2 className="text-lg font-semibold">Navigation</h2>
+                            <h2 className="text-lg font-semibold font-ethnocentric">Navigation</h2>
                             <button
                                 onClick={() => setIsOpen(false)} // Changed from setIsDrawerOpen
                                 className="p-2 hover:bg-neutral-300 dark:hover:bg-neutral-700 rounded transition-colors"

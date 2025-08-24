@@ -1,1 +1,46 @@
 @import "tailwindcss";
+
+/* Custom font classes using Adobe Typekit fonts */
+.font-ethnocentric {
+  font-family: "ethnocentric", "industry-inc-detail", "industry-inc-base", 'Arial Black', 'Helvetica Bold', sans-serif !important;
+  font-weight: normal !important;
+  letter-spacing: 0.05em !important;
+}
+
+.font-magistral {
+  font-family: "industry-inc-base", "industry-inc-detail", 'Arial', 'Helvetica', sans-serif !important;
+  font-weight: normal !important;
+}
+
+/* Apply fonts to specific elements with higher specificity */
+h1, h2, h3, .text-title {
+  font-family: "ethnocentric", "industry-inc-detail", "industry-inc-base", 'Arial Black', 'Helvetica Bold', sans-serif !important;
+  font-weight: normal !important;
+  letter-spacing: 0.05em !important;
+}
+
+p, span, div, .text-body {
+  font-family: "industry-inc-base", "industry-inc-detail", 'Arial', 'Helvetica', sans-serif !important;
+  font-weight: normal !important;
+}
+
+/* Force specific elements to use custom fonts */
+.dashboard-title,
+.calendar-title,
+.programs-title,
+.messages-title {
+  font-family: "ethnocentric", "industry-inc-detail", "industry-inc-base", 'Arial Black', 'Helvetica Bold', sans-serif !important;
+  font-weight: normal !important;
+  letter-spacing: 0.05em !important;
+}
+
+.section-heading {
+  font-family: "ethnocentric", "industry-inc-detail", "industry-inc-base", 'Arial Black', 'Helvetica Bold', sans-serif !important;
+  font-weight: normal !important;
+  letter-spacing: 0.05em !important;
+}
+
+.body-text {
+  font-family: "industry-inc-base", "industry-inc-detail", 'Arial', 'Helvetica', sans-serif !important;
+  font-weight: normal !important;
+}

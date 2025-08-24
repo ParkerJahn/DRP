@@ -684,7 +684,7 @@ const Calendar: React.FC = () => {
       <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-lg p-6">
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Calendar</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white font-ethnocentric">Calendar</h1>
           <div className="flex items-center gap-4">
             {/* View Toggle */}
             <div className="flex bg-gray-100 dark:bg-neutral-700 rounded-lg p-1">
@@ -1053,7 +1053,7 @@ const Calendar: React.FC = () => {
           <div className="space-y-6">
             {/* Header */}
             <div className="flex justify-between items-center">
-              <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Weekly Availability Schedule</h3>
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white font-ethnocentric">Weekly Availability Schedule</h3>
               <button
                 onClick={() => {
                   // Save all changes

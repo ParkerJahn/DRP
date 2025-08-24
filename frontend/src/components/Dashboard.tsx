@@ -47,8 +47,10 @@ const WeeklyCalendar: React.FC<{ userId: string; proId: string; userRole: UserRo
           const today = new Date();
           const weekStart = new Date(today);
           weekStart.setDate(today.getDate() - today.getDay()); // Start of week (Sunday)
+          weekStart.setHours(0, 0, 0, 0); // Set to start of day
           const weekEnd = new Date(weekStart);
           weekEnd.setDate(weekStart.getDate() + 7); // End of week
+          weekEnd.setHours(23, 59, 59, 999); // Set to end of day
           
           const weekEvents = eventsResult.events.filter((event: any) => {
             const eventDate = event.startsAt.toDate();
@@ -96,7 +98,7 @@ const WeeklyCalendar: React.FC<{ userId: string; proId: string; userRole: UserRo
     return (
       <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">📅 This Week</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric">📅 This Week</h3>
           <button
             onClick={handleViewCalendar}
             className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
@@ -119,7 +121,8 @@ const WeeklyCalendar: React.FC<{ userId: string; proId: string; userRole: UserRo
   const weekDates = [];
   const today = new Date();
   const weekStart = new Date(today);
-  weekStart.setDate(today.getDate() - today.getDay());
+  weekStart.setDate(today.getDate() - today.getDay()); // Start of week (Sunday)
+  weekStart.setHours(0, 0, 0, 0); // Set to start of day
   
   for (let i = 0; i < 7; i++) {
     const date = new Date(weekStart);
@@ -130,7 +133,7 @@ const WeeklyCalendar: React.FC<{ userId: string; proId: string; userRole: UserRo
   return (
     <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">📅 This Week</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric">📅 This Week</h3>
         <button
           onClick={handleViewCalendar}
           className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
@@ -270,7 +273,7 @@ const CalendarWidget: React.FC<{ userId: string; proId: string; userRole: UserRo
     return (
       <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">📅 Today's Schedule</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric">📅 Today's Schedule</h3>
           <button
             onClick={handleViewCalendar}
             className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
@@ -290,7 +293,7 @@ const CalendarWidget: React.FC<{ userId: string; proId: string; userRole: UserRo
   return (
     <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">📅 Today's Schedule</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric">📅 Today's Schedule</h3>
         <button
           onClick={handleViewCalendar}
           className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
@@ -401,7 +404,7 @@ const UpcomingEventsWidget: React.FC<{ userId: string; proId: string; userRole: 
     return (
       <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">📅 Upcoming Events</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric">📅 Upcoming Events</h3>
           <button
             onClick={handleViewCalendar}
             className="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300"
@@ -419,7 +422,7 @@ const UpcomingEventsWidget: React.FC<{ userId: string; proId: string; userRole: 
   return (
     <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">📅 Upcoming Events</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric">📅 Upcoming Events</h3>
         <button
           onClick={handleViewCalendar}
           className="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300"
@@ -915,7 +918,7 @@ export const Dashboard: React.FC = () => {
             </div>
 
             <div className="bg-white dark:bg-neutral-800 p-6 rounded-lg shadow">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Actions</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric mb-4">Quick Actions</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <button 
                   onClick={() => handleQuickAction('create-program')}
@@ -1021,7 +1024,7 @@ export const Dashboard: React.FC = () => {
             </div>
 
             <div className="bg-white dark:bg-neutral-800 p-6 rounded-lg shadow">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Actions</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric mb-4">Quick Actions</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <button 
                   onClick={() => handleQuickAction('view-packages')}
@@ -1074,7 +1077,7 @@ export const Dashboard: React.FC = () => {
       default:
         return (
           <div className="bg-white dark:bg-neutral-800 p-6 rounded-lg shadow">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Welcome!</h3>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-white font-ethnocentric mb-4">Welcome!</h3>
             <p className="text-gray-600 dark:text-gray-400">Your role is being determined...</p>
           </div>
         );
@@ -1087,7 +1090,7 @@ export const Dashboard: React.FC = () => {
       <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white font-ethnocentric">Dashboard</h1>
             <p className="mt-2 text-gray-600 dark:text-gray-400">
               Welcome back, {user?.displayName || user?.email}!
             </p>
@@ -1114,7 +1117,7 @@ export const Dashboard: React.FC = () => {
       {/* Recent Activity */}
       {stats.recentActivity.length > 0 && (
         <div className="bg-white dark:bg-neutral-800 p-6 rounded-lg shadow">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Recent Activity</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric mb-4">Recent Activity</h3>
           <div className="space-y-4">
             {stats.recentActivity.map((activity) => (
               <div key={activity.id} className="flex items-start space-x-3 p-3 bg-gray-50 dark:bg-neutral-700 rounded-lg">

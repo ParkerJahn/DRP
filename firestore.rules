@@ -48,7 +48,8 @@ service cloud.firestore {
       allow read: if isSignedIn() && (
         userId == uid() || // can read own profile (basic self-access)
         (isPro() && proId() != null && resource.data.proId == proId()) || // PRO can read team members
-        (isPro() && userId == uid()) // PRO can read their own profile even without proId claim
+        (isPro() && userId == uid()) || // PRO can read their own profile even without proId claim
+        (isStaff() && proId() != null && resource.data.proId == proId()) // STAFF can read team members for analytics
       );
       allow update: if isSignedIn() && userId == uid() && (
         // only allow updating safe fields
@@ -65,7 +66,7 @@ service cloud.firestore {
         (isTeamMember() && teamProId == proId()) || // Team members can read their team
         (isPro() && teamProId == uid()) // PRO can read their own team even without proId claim
       );
-      allow write: if isSignedIn() && isPro() && teamProId == uid();
+      allow write: if false; // Only managed by Cloud Functions for security
     }
 
     // Invites collection - opaque to clients
@@ -108,6 +109,7 @@ service cloud.firestore {
       allow read: if isSignedIn() && (
         (isTeamMember() && proId() == resource.data.proId) || // Team members can read team events
         (isPro() && resource.data.proId == uid()) || // PRO can read their team events
+        (isStaff() && proId() != null && resource.data.proId == proId()) || // STAFF can read team events for analytics
         (isAthlete() && uid() in resource.data.attendees) // Athletes can see events they're in
       );
       allow create, update: if isSignedIn() && (

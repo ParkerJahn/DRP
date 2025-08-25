@@ -604,19 +604,14 @@ function TeamManagement() {
 
             {/* Team Name Card */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border-l-4 border-purple-500">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col items-center text-center">
+                <div className="p-3 bg-purple-100 dark:bg-purple-900 rounded-full mb-3">
+                  <span className="text-2xl">👑</span>
+                </div>
                 <div>
                   <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Team Name</p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-white">{teamName || 'Loading...'}</p>
                 </div>
-                <div className="p-3 bg-purple-100 dark:bg-purple-900 rounded-full">
-                  <span className="text-2xl">👑</span>
-                </div>
-              </div>
-              <div className="mt-4">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Your team name
-                </p>
               </div>
             </div>
           </div>
@@ -906,48 +901,49 @@ function TeamManagement() {
 
       {/* Team Name Section - PRO Users */}
       <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Your Team Name:</span>
-            {isEditingTeamName ? (
-              <div className="flex items-center space-x-2">
-                <input
-                  type="text"
-                  value={editingTeamName}
-                  onChange={(e) => setEditingTeamName(e.target.value)}
-                  className="px-3 py-1 text-lg font-semibold text-gray-900 dark:text-white bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
-                  placeholder="Enter team name"
-                  maxLength={30}
-                  autoFocus
-                />
-                <button
-                  onClick={saveTeamName}
-                  className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
-                >
-                  Save
-                </button>
-                <button
-                  onClick={cancelEditingTeamName}
-                  className="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center space-x-2">
-                <span className="text-lg font-semibold text-gray-900 dark:text-white">
-                  {teamName || 'My Team'}
-                </span>
-                <button
-                  onClick={startEditingTeamName}
-                  className="p-1 text-gray-500 hover:text-purple-600 transition-colors"
-                  title="Edit team name"
-                >
-                  ✏️
-                </button>
-              </div>
-            )}
-          </div>
+        <div className="flex flex-col items-center text-center space-y-3">
+          <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Your Team Name:</span>
+          {isEditingTeamName ? (
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                value={editingTeamName}
+                onChange={(e) => setEditingTeamName(e.target.value)}
+                className="px-3 py-1 text-lg font-semibold text-gray-900 dark:text-white bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                placeholder="Enter team name"
+                maxLength={30}
+                autoFocus
+              />
+              <button
+                onClick={saveTeamName}
+                className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+              >
+                Save
+              </button>
+              <button
+                onClick={cancelEditingTeamName}
+                className="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-2">
+              <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                {teamName || 'My Team'}
+              </span>
+              <button
+                onClick={startEditingTeamName}
+                className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors duration-200 flex items-center space-x-1"
+                title="Edit team name"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                <span>Edit</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

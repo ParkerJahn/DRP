@@ -1,8 +1,143 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { validateName, validateEmail, validateTextContent, sanitizeText } from '../utils/validation';
 import { ROUTES } from '../config/routes';
 import darkLogo from '/darkmodelogo.png';
 
 const Contact: React.FC = () => {
+  const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    subject: '',
+    message: ''
+  });
+
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    let sanitizedValue = value;
+    
+    // Apply appropriate sanitization based on field type
+    switch (name) {
+      case 'firstName':
+      case 'lastName':
+        sanitizedValue = sanitizeText(value);
+        break;
+      case 'email':
+        sanitizedValue = sanitizeText(value);
+        break;
+      case 'message':
+        sanitizedValue = sanitizeText(value);
+        break;
+      case 'subject':
+        // Don't sanitize select values
+        sanitizedValue = value;
+        break;
+      default:
+        sanitizedValue = sanitizeText(value);
+    }
+    
+    setFormData(prev => ({ ...prev, [name]: sanitizedValue }));
+    
+    // Clear error when user starts typing
+    if (errors[name]) {
+      setErrors(prev => ({ ...prev, [name]: '' }));
+    }
+  };
+
+  const handleInputBlur = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    let validation;
+    
+    // Apply validation on blur
+    switch (name) {
+      case 'firstName':
+        validation = validateName(value, 'First Name');
+        break;
+      case 'lastName':
+        validation = validateName(value, 'Last Name');
+        break;
+      case 'email':
+        validation = validateEmail(value);
+        break;
+      case 'message':
+        validation = validateTextContent(value, 2000);
+        break;
+      default:
+        return;
+    }
+    
+    if (!validation.isValid) {
+      setErrors(prev => ({ ...prev, [name]: validation.error || '' }));
+      setFormData(prev => ({ ...prev, [name]: validation.sanitized }));
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validate all fields
+    const newErrors: Record<string, string> = {};
+    
+    const firstNameValidation = validateName(formData.firstName, 'First Name');
+    if (!firstNameValidation.isValid) {
+      newErrors.firstName = firstNameValidation.error || '';
+    }
+    
+    const lastNameValidation = validateName(formData.lastName, 'Last Name');
+    if (!lastNameValidation.isValid) {
+      newErrors.lastName = lastNameValidation.error || '';
+    }
+    
+    const emailValidation = validateEmail(formData.email);
+    if (!emailValidation.isValid) {
+      newErrors.email = emailValidation.error || '';
+    }
+    
+    if (!formData.subject) {
+      newErrors.subject = 'Please select a subject';
+    }
+    
+    const messageValidation = validateTextContent(formData.message, 2000);
+    if (!messageValidation.isValid) {
+      newErrors.message = messageValidation.error || '';
+    }
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    
+    setIsSubmitting(true);
+    
+    try {
+      // Here you would typically send the form data to your backend
+      // For now, we'll just simulate a submission
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Reset form on success
+      setFormData({
+        firstName: '',
+        lastName: '',
+        email: '',
+        subject: '',
+        message: ''
+      });
+      setErrors({});
+      
+      // Show success message (you could add a toast notification here)
+      alert('Thank you for your message! We\'ll get back to you soon.');
+      
+    } catch (error) {
+      console.error('Error submitting form:', error);
+      setErrors({ submit: 'Failed to send message. Please try again.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-900">
       {/* Navigation */}
@@ -96,7 +231,7 @@ const Contact: React.FC = () => {
         <div className="max-w-4xl mx-auto">
           <h2 className="text-3xl font-bold text-white text-center mb-16">Send us a Message</h2>
           
-          <form className="space-y-6">
+          <form className="space-y-6" onSubmit={handleSubmit}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label htmlFor="firstName" className="block text-white font-medium mb-2">First Name</label>
@@ -104,9 +239,18 @@ const Contact: React.FC = () => {
                   type="text"
                   id="firstName"
                   name="firstName"
-                  className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  value={formData.firstName}
+                  onChange={handleInputChange}
+                  onBlur={handleInputBlur}
+                  className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
+                    errors.firstName ? 'border-red-500' : 'border-gray-700'
+                  }`}
                   placeholder="Enter your first name"
+                  required
                 />
+                {errors.firstName && (
+                  <p className="text-red-400 text-sm mt-1">{errors.firstName}</p>
+                )}
               </div>
               
               <div>
@@ -115,9 +259,18 @@ const Contact: React.FC = () => {
                   type="text"
                   id="lastName"
                   name="lastName"
-                  className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  value={formData.lastName}
+                  onChange={handleInputChange}
+                  onBlur={handleInputBlur}
+                  className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
+                    errors.lastName ? 'border-red-500' : 'border-gray-700'
+                  }`}
                   placeholder="Enter your last name"
+                  required
                 />
+                {errors.lastName && (
+                  <p className="text-red-400 text-sm mt-1">{errors.lastName}</p>
+                )}
               </div>
             </div>
             
@@ -127,9 +280,18 @@ const Contact: React.FC = () => {
                 type="email"
                 id="email"
                 name="email"
-                className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                value={formData.email}
+                onChange={handleInputChange}
+                onBlur={handleInputBlur}
+                className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
+                  errors.email ? 'border-red-500' : 'border-gray-700'
+                }`}
                 placeholder="Enter your email address"
+                required
               />
+              {errors.email && (
+                <p className="text-red-400 text-sm mt-1">{errors.email}</p>
+              )}
             </div>
             
             <div>
@@ -137,7 +299,12 @@ const Contact: React.FC = () => {
               <select
                 id="subject"
                 name="subject"
-                className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                value={formData.subject}
+                onChange={handleInputChange}
+                className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
+                  errors.subject ? 'border-red-500' : 'border-gray-700'
+                }`}
+                required
               >
                 <option value="">Select a subject</option>
                 <option value="general">General Inquiry</option>
@@ -147,6 +314,9 @@ const Contact: React.FC = () => {
                 <option value="feature">Feature Request</option>
                 <option value="other">Other</option>
               </select>
+              {errors.subject && (
+                <p className="text-red-400 text-sm mt-1">{errors.subject}</p>
+              )}
             </div>
             
             <div>
@@ -155,17 +325,33 @@ const Contact: React.FC = () => {
                 id="message"
                 name="message"
                 rows={6}
-                className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                value={formData.message}
+                onChange={handleInputChange}
+                onBlur={handleInputBlur}
+                className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
+                  errors.message ? 'border-red-500' : 'border-gray-700'
+                }`}
                 placeholder="Tell us how we can help you..."
+                required
               ></textarea>
+              {errors.message && (
+                <p className="text-red-400 text-sm mt-1">{errors.message}</p>
+              )}
             </div>
+            
+            {errors.submit && (
+              <div className="text-center">
+                <p className="text-red-400 text-sm">{errors.submit}</p>
+              </div>
+            )}
             
             <div className="text-center">
               <button
                 type="submit"
-                className="inline-block bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-8 py-4 rounded-lg font-semibold text-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
+                disabled={isSubmitting}
+                className="inline-block bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-8 py-4 rounded-lg font-semibold text-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Send Message
+                {isSubmitting ? 'Sending...' : 'Send Message'}
               </button>
             </div>
           </form>

@@ -1,16 +1,19 @@
 import { 
   doc, 
-  setDoc, 
   getDoc, 
+  getDocs, 
+  addDoc, 
   updateDoc, 
+  setDoc,
   deleteDoc,
   collection, 
   query, 
   where, 
-  getDocs,
-  orderBy,
+  orderBy, 
   serverTimestamp,
-  addDoc
+  limit,
+  startAfter,
+  QueryDocumentSnapshot
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import type { Chat, Message } from '../types';
@@ -161,24 +164,40 @@ export const sendMessage = async (messageData: Omit<Message, 'createdAt'>) => {
   }
 };
 
-export const getMessagesByChat = async (chatId: string) => {
+export const getMessagesByChat = async (chatId: string, messageLimit: number = 50, startAfterDoc?: QueryDocumentSnapshot) => {
   try {
-    // Get messages from chat subcollection
-    const messagesRef = collection(db, 'chats', chatId, 'messages');
-    const q = query(
-      messagesRef, 
-      orderBy('createdAt', 'asc')
+    let q = query(
+      collection(db, 'chats', chatId, 'messages'),
+      orderBy('createdAt', 'desc'),
+      limit(messageLimit)
     );
-    const querySnapshot = await getDocs(q);
     
+    if (startAfterDoc) {
+      q = query(q, startAfter(startAfterDoc));
+    }
+    
+    const messagesSnapshot = await getDocs(q);
     const messages: Array<Message & { id: string }> = [];
-    querySnapshot.forEach((doc) => {
-      messages.push({ id: doc.id, ...doc.data() } as Message & { id: string });
+    
+    messagesSnapshot.forEach(doc => {
+      const data = doc.data();
+      messages.push({
+        id: doc.id,
+        chatId: data.chatId,
+        by: data.by,
+        text: data.text,
+        createdAt: data.createdAt
+      } as Message & { id: string });
     });
     
-    return { success: true, messages };
+    return { 
+      success: true, 
+      messages: messages.reverse(), // Show oldest first
+      hasMore: messagesSnapshot.docs.length === messageLimit,
+      lastDoc: messagesSnapshot.docs[messagesSnapshot.docs.length - 1]
+    };
   } catch (error) {
-    console.error('Error fetching messages by chat:', error);
+    console.error('Error fetching messages:', error);
     return { success: false, error };
   }
 };

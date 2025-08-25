@@ -16,7 +16,9 @@ import {
   createProgramTemplate,
   assignTemplateToAthlete
 } from '../services/programs';
-import type { Program, ProgramStatus, Phase } from '../types';
+import type { Program, ProgramStatus, Phase, User } from '../types';
+import type { ProgramTemplate } from '../services/programs';
+import { Timestamp } from 'firebase/firestore';
 
 const Programs: React.FC = () => {
   const { user } = useAuth();
@@ -59,7 +61,17 @@ const Programs: React.FC = () => {
       }
       
       if (result.success) {
-        setPrograms(result.programs || []);
+        setPrograms((result.programs || []).map((p: Program) => ({
+          id: p.id,
+          title: p.title,
+          status: p.status,
+          athleteUid: p.athleteUid,
+          phases: p.phases,
+          createdBy: p.createdBy,
+          proId: p.proId,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt
+        })));
       } else {
         console.error('Error loading programs:', result.error);
         // Fallback to mock data for development
@@ -90,8 +102,8 @@ const Programs: React.FC = () => {
         console.error('Error loading exercise categories:', result.error);
         // Fallback to mock data for development
         setExerciseCategories([
-          { id: 'strength', name: 'Strength Training', exercises: ['Bench Press', 'Squats', 'Deadlifts'], createdBy: user.uid, proId: user.proId || user.uid, createdAt: new Date() as any, updatedAt: new Date() as any },
-          { id: 'cardio', name: 'Cardio', exercises: ['Running', 'Cycling', 'Rowing'], createdBy: user.uid, proId: user.proId || user.uid, createdAt: new Date() as any, updatedAt: new Date() as any }
+          { id: 'strength', name: 'Strength Training', exercises: ['Bench Press', 'Squats', 'Deadlifts'], createdBy: user.uid, proId: user.proId || user.uid, createdAt: Timestamp.now(), updatedAt: Timestamp.now() },
+          { id: 'cardio', name: 'Cardio', exercises: ['Running', 'Cycling', 'Rowing'], createdBy: user.uid, proId: user.proId || user.uid, createdAt: Timestamp.now(), updatedAt: Timestamp.now() }
         ]);
       }
     } catch (error) {
@@ -107,10 +119,10 @@ const Programs: React.FC = () => {
       const { getUsersByRole } = await import('../services/firebase');
       const res = await getUsersByRole(proId, 'ATHLETE');
       if (res.success && Array.isArray(res.users)) {
-        setAthletes(res.users.map((u) => ({
+        setAthletes(res.users.map((u: User) => ({
           uid: u.uid,
-          firstName: (u as any)?.firstName || u.displayName || 'Athlete',
-          lastName: (u as any)?.lastName || '',
+          firstName: u.firstName || u.displayName || 'Athlete',
+          lastName: u.lastName || '',
           email: u.email,
         })));
       }
@@ -126,7 +138,7 @@ const Programs: React.FC = () => {
       const proId = user.proId || user.uid;
       const res = await getProgramTemplatesByPro(proId);
       if (res.success) {
-        setTemplates((res.templates || []).map((t: any) => ({ id: t.id, title: t.title })));
+        setTemplates((res.templates || []).map((t: ProgramTemplate) => ({ id: t.id, title: t.title })));
       }
     } catch (e) {
       console.error('Error loading templates', e);

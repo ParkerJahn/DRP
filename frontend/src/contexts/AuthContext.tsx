@@ -48,7 +48,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     // Prevent duplicate fetches for the same user
     if (lastFetchedUid.current === uid && user) {
-      console.log(`[${tabId.current}] ⏭️ Skipping duplicate fetch for user:`, uid);
       return;
     }
 
@@ -56,7 +55,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     fetchTimeoutRef.current = setTimeout(async () => {
       // Double-check we're not already fetching
       if (isFetching.current) {
-        console.log(`[${tabId.current}] ⏭️ Skipping fetch - already fetching for:`, lastFetchedUid.current);
         return;
       }
 
@@ -64,13 +62,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isFetching.current = true;
         lastFetchedUid.current = uid;
         
-        console.log(`[${tabId.current}] 📄 Fetching user data for:`, uid);
         const userRef = doc(db, 'users', uid);
         const userSnap = await getDoc(userRef);
         
         if (userSnap.exists()) {
           const userData = userSnap.data() as User;
-          console.log(`[${tabId.current}] ✅ User data fetched successfully:`, userData);
           
           setUser(userData);
           setRole(userData.role);
@@ -78,7 +74,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           setProStatus(userData.proStatus || null);
           setLoading(false);
         } else {
-          console.log(`[${tabId.current}] ❌ User document not found`);
           setUser(null);
           setRole(null);
           setProId(null);
@@ -103,7 +98,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     if (!firebaseUser) return;
 
     try {
-      console.log(`[${tabId.current}] 🔄 Refreshing user data...`);
       await getIdToken(firebaseUser, true);
       await fetchUserData(firebaseUser.uid);
     } catch (error) {
@@ -114,7 +108,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Sign out
   const signOut = async () => {
     try {
-      console.log(`[${tabId.current}] 🚪 Signing out...`);
       await firebaseSignOut(auth);
       setUser(null);
       setRole(null);
@@ -131,17 +124,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Listen for auth state changes
   useEffect(() => {
-    console.log(`[${tabId.current}] 🔐 Setting up auth state listener...`);
     
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
-      console.log(`[${tabId.current}] 🔍 Current Firebase user:`, firebaseUser ? firebaseUser.uid : 'none');
       
       if (firebaseUser) {
-        console.log(`[${tabId.current}] 🔍 Auth state changed: signed in`);
         setFirebaseUser(firebaseUser);
         await fetchUserData(firebaseUser.uid);
       } else {
-        console.log(`[${tabId.current}] 🔍 Auth state changed: signed out`);
         setFirebaseUser(null);
         setUser(null);
         setRole(null);
@@ -152,7 +141,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     });
 
     return () => {
-      console.log(`[${tabId.current}] 🧹 Cleaning up auth state listener...`);
       unsubscribe();
     };
   }, []); // Empty dependency array - listener should only be set up once

@@ -6,6 +6,11 @@ import { getUsersByRole } from '../services/firebase';
 import { getEventsByPro, getEventsByAttendee } from '../services/calendar';
 import { getPaymentsByPro, getPaymentsByPayer } from '../services/payments';
 import { getPackagesByPro, getAthletePackages } from '../services/packages';
+import type { Event } from '../types';
+import { Timestamp } from 'firebase/firestore';
+import ProAnalytics from './analytics/ProAnalytics';
+import StaffAnalytics from './analytics/StaffAnalytics';
+import AthleteAnalytics from './analytics/AthleteAnalytics';
 
 interface DashboardStats {
   staffCount: number;
@@ -26,7 +31,7 @@ interface DashboardStats {
 
 // Weekly Calendar Component
 const WeeklyCalendar: React.FC<{ userId: string; proId: string; userRole: UserRole }> = ({ userId, proId, userRole }) => {
-  const [weekEvents, setWeekEvents] = useState<Array<any>>([]);
+  const [weekEvents, setWeekEvents] = useState<Array<Event & { id: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
   const navigate = useNavigate();
@@ -52,7 +57,7 @@ const WeeklyCalendar: React.FC<{ userId: string; proId: string; userRole: UserRo
           weekEnd.setDate(weekStart.getDate() + 7); // End of week
           weekEnd.setHours(23, 59, 59, 999); // Set to end of day
           
-          const weekEvents = eventsResult.events.filter((event: any) => {
+          const weekEvents = eventsResult.events.filter((event: Event & { id: string }) => {
             const eventDate = event.startsAt.toDate();
             return eventDate >= weekStart && eventDate < weekEnd;
           });
@@ -88,7 +93,7 @@ const WeeklyCalendar: React.FC<{ userId: string; proId: string; userRole: UserRo
   };
 
   const getEventsForDay = (date: Date) => {
-    return weekEvents.filter((event: any) => {
+    return weekEvents.filter((event: Event & { id: string }) => {
       const eventDate = event.startsAt.toDate();
       return eventDate.toDateString() === date.toDateString();
     });
@@ -187,7 +192,7 @@ const WeeklyCalendar: React.FC<{ userId: string; proId: string; userRole: UserRo
                     No events
                   </div>
                 ) : (
-                  dayEvents.slice(0, isHovered ? 3 : 2).map((event: any, eventIndex: number) => (
+                  dayEvents.slice(0, isHovered ? 3 : 2).map((event: Event & { id: string }, eventIndex: number) => (
                     <div 
                       key={eventIndex}
                       className={`p-1 rounded text-left transition-all duration-200 ${
@@ -226,7 +231,7 @@ const WeeklyCalendar: React.FC<{ userId: string; proId: string; userRole: UserRo
 
 // Calendar Widget Component
 const CalendarWidget: React.FC<{ userId: string; proId: string; userRole: UserRole }> = ({ userId, proId, userRole }) => {
-  const [todayEvents, setTodayEvents] = useState<Array<any>>([]);
+  const [todayEvents, setTodayEvents] = useState<Array<Event & { id?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
@@ -247,7 +252,7 @@ const CalendarWidget: React.FC<{ userId: string; proId: string; userRole: UserRo
           const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
           const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
           
-          const todaysEvents = eventsResult.events.filter((event: any) => {
+          const todaysEvents = eventsResult.events.filter((event: Event) => {
             const eventDate = event.startsAt.toDate();
             return eventDate >= todayStart && eventDate < todayEnd;
           });
@@ -309,8 +314,8 @@ const CalendarWidget: React.FC<{ userId: string; proId: string; userRole: UserRo
         </div>
       ) : (
         <div className="space-y-3">
-          {todayEvents.slice(0, 3).map((event: any) => (
-            <div key={event.id} className="flex items-center p-3 bg-gray-50 dark:bg-neutral-700 rounded-lg">
+          {todayEvents.slice(0, 3).map((event: Event & { id?: string }, index: number) => (
+            <div key={event.id || index} className="flex items-center p-3 bg-gray-50 dark:bg-neutral-700 rounded-lg">
               <div className="flex-shrink-0 w-3 h-3 bg-blue-500 dark:bg-blue-400 rounded-full mr-3"></div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
@@ -340,7 +345,7 @@ const CalendarWidget: React.FC<{ userId: string; proId: string; userRole: UserRo
 
 // Upcoming Events Widget Component
 const UpcomingEventsWidget: React.FC<{ userId: string; proId: string; userRole: UserRole }> = ({ userId, proId, userRole }) => {
-  const [upcomingEvents, setUpcomingEvents] = useState<Array<any>>([]);
+  const [upcomingEvents, setUpcomingEvents] = useState<Array<Event & { id?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
@@ -359,8 +364,8 @@ const UpcomingEventsWidget: React.FC<{ userId: string; proId: string; userRole: 
         if (eventsResult.success && eventsResult.events) {
           const now = new Date();
           const upcoming = eventsResult.events
-            .filter((event: any) => event.startsAt.toDate() > now)
-            .sort((a: any, b: any) => a.startsAt.toDate().getTime() - b.startsAt.toDate().getTime())
+            .filter((event: Event) => event.startsAt.toDate() > now)
+            .sort((a: Event, b: Event) => a.startsAt.toDate().getTime() - b.startsAt.toDate().getTime())
             .slice(0, 5); // Show next 5 events
           
           setUpcomingEvents(upcoming);
@@ -380,7 +385,7 @@ const UpcomingEventsWidget: React.FC<{ userId: string; proId: string; userRole: 
     navigate('/app/calendar');
   };
 
-  const formatEventTime = (timestamp: any) => {
+  const formatEventTime = (timestamp: Timestamp) => {
     const date = timestamp.toDate();
     return date.toLocaleDateString('en-US', { 
       month: 'short', 
@@ -441,7 +446,7 @@ const UpcomingEventsWidget: React.FC<{ userId: string; proId: string; userRole: 
         <div className="space-y-3">
           {upcomingEvents.map((event, index) => (
             <div
-              key={index}
+              key={event.id || index}
               className="flex items-center justify-between p-3 bg-gray-50 dark:bg-neutral-700 rounded-lg hover:bg-gray-100 dark:hover:bg-neutral-600 transition-colors cursor-pointer"
               onClick={() => navigate('/app/calendar')}
             >
@@ -520,7 +525,7 @@ export const Dashboard: React.FC = () => {
       ]);
 
       // Load events (with error handling for index issues)
-      let upcomingEvents = 0;
+      const upcomingEvents = 0;
       // Temporarily disabled calendar service to avoid index errors during development
       /*
       try {
@@ -594,7 +599,7 @@ export const Dashboard: React.FC = () => {
 
     try {
       // Load events for this staff member (with error handling)
-      let myEvents: any[] = [];
+      const myEvents: Array<Event & { id: string }> = [];
       // Temporarily disabled calendar service to avoid index errors during development
       /*
       try {
@@ -614,7 +619,7 @@ export const Dashboard: React.FC = () => {
       const activity: DashboardStats['recentActivity'] = [];
       
       // Add recent events to activity
-      myEvents.slice(0, 3).forEach(event => {
+      myEvents.slice(0, 3).forEach((event) => {
         activity.push({
           id: event.id || '',
           type: 'event',
@@ -644,7 +649,7 @@ export const Dashboard: React.FC = () => {
 
     try {
       // Load upcoming events for this athlete (with error handling)
-      let myEvents: any[] = [];
+      const myEvents: Array<Event & { id: string }> = [];
       // Temporarily disabled calendar service to avoid index errors during development
       /*
       try {
@@ -689,7 +694,7 @@ export const Dashboard: React.FC = () => {
           title: 'Upcoming Session',
           description: `${event.title} - ${event.startsAt.toDate().toLocaleDateString()}`,
           timestamp: event.startsAt.toDate(),
-          icon: '🏋️'
+          icon: '📅'
         });
       });
 
@@ -863,6 +868,9 @@ export const Dashboard: React.FC = () => {
               </div>
             </div>
 
+            {/* PRO Analytics */}
+            {user && <ProAnalytics proId={user.proId || user.uid} />}
+
             {/* Weekly Calendar - Full Width */}
             <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
               {user && (
@@ -979,6 +987,9 @@ export const Dashboard: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {/* Staff Analytics */}
+            {user && <StaffAnalytics proId={user.proId || user.uid} />}
           </div>
         );
 
@@ -1058,10 +1069,13 @@ export const Dashboard: React.FC = () => {
                     <div className="text-sm text-gray-500 dark:text-gray-400">Get support</div>
                   </div>
                 </button>
+                      </div>
           </div>
-        </div>
 
-            {/* Weekly Calendar - Full Width */}
+          {/* Athlete Analytics */}
+          {user && <AthleteAnalytics userId={user.uid} />}
+
+          {/* Weekly Calendar - Full Width */}
             <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
               {user && (
                 <WeeklyCalendar 

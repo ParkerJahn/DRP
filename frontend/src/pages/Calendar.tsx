@@ -123,16 +123,43 @@ const Calendar: React.FC = () => {
     if (!user) return;
     
     try {
-      let result: { success: boolean; slots?: AvailabilitySlot[]; error?: any } | null = null;
+      let result: { success: boolean; slots?: AvailabilitySlot[]; error?: string } | null = null;
       if (user.role === 'PRO') {
         // PRO sees all team availability
-        result = await getTeamAvailabilitySlots(user.uid);
+        try {
+          const availabilityResult = await getTeamAvailabilitySlots(user.uid);
+          result = {
+            success: availabilityResult.success,
+            slots: availabilityResult.slots,
+            error: availabilityResult.error ? String(availabilityResult.error) : undefined
+          };
+        } catch (error) {
+          result = { success: false, error: String(error) };
+        }
       } else if (user.role === 'STAFF') {
         // STAFF sees their own availability
-        result = await getAvailabilitySlots(user.uid);
+        try {
+          const availabilityResult = await getAvailabilitySlots(user.uid);
+          result = {
+            success: availabilityResult.success,
+            slots: availabilityResult.slots,
+            error: availabilityResult.error ? String(availabilityResult.error) : undefined
+          };
+        } catch (error) {
+          result = { success: false, error: String(error) };
+        }
       } else if (user.role === 'ATHLETE') {
         // ATHLETES see team availability for booking
-        result = await getTeamAvailabilitySlots(user.proId || user.uid);
+        try {
+          const availabilityResult = await getTeamAvailabilitySlots(user.proId || user.uid);
+          result = {
+            success: availabilityResult.success,
+            slots: availabilityResult.slots,
+            error: availabilityResult.error ? String(availabilityResult.error) : undefined
+          };
+        } catch (error) {
+          result = { success: false, error: String(error) };
+        }
       }
       
       if (result && result.success) {
@@ -404,7 +431,7 @@ const Calendar: React.FC = () => {
       await refreshUserToken();
       
       // The event object has an id property from Firestore
-      const eventId = (deleteModal.event as any).id;
+      const eventId = (deleteModal.event as Event & { id: string }).id;
       if (!eventId) {
         alert('Event ID not found');
         return;
@@ -584,7 +611,21 @@ const Calendar: React.FC = () => {
   };
 
   // Memoized Day Hover Popup Component to prevent unnecessary re-renders
-  const DayHoverPopup = React.memo<{ date: Date; events: Event[]; availability: any[] }>(({ date, events, availability }) => {
+  const DayHoverPopup = React.memo<{ 
+    date: Date; 
+    events: Event[]; 
+    availability: Array<{
+      id: string;
+      title: string;
+      type: string;
+      isAvailability: boolean;
+      startTime: string;
+      endTime: string;
+      userId: string;
+      userName: string;
+      formattedTime: string;
+    }>
+  }>(({ date, events, availability }) => {
     
     if (!hoveredDate || hoveredDate !== date.toDateString()) {
       return null;

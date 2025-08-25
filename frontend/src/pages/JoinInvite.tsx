@@ -542,7 +542,7 @@ const JoinInvite: React.FC = () => {
         )}
 
         {/* Debug Information (temporary) */}
-        {inviteData && (
+        {import.meta.env.DEV && inviteData && (
           <div className="mb-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
             <h4 className="text-sm font-semibold text-blue-800 dark:text-blue-200 mb-2">🔍 Debug Info</h4>
             <div className="text-xs text-blue-700 dark:text-blue-300 space-y-1">

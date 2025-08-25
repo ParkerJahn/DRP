@@ -1,8 +1,12 @@
-import { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { signInWithEmailAndPassword, signInWithPopup } from "firebase/auth";
 import { auth, googleProvider } from "../config/firebase";
 import { useAuth } from "../hooks/useAuth";
 import MultiStepRegistration from "./MultiStepRegistration";
+import ForgotPassword from "./ForgotPassword";
+import { validateEmail, sanitizeText } from '../utils/validation';
+import { authRateLimiter } from '../utils/rateLimit';
+import { CSRFProtection, SecurityAudit, SessionSecurity } from '../utils/security';
 
 export const SignIn = ({ onSwitchToRegister, onAuthSuccess }: { onSwitchToRegister: () => void; onAuthSuccess: (userData: { email: string | null }) => void }) => {
   const { refreshUser } = useAuth();
@@ -12,26 +16,99 @@ export const SignIn = ({ onSwitchToRegister, onAuthSuccess }: { onSwitchToRegist
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [csrfToken, setCsrfToken] = useState<string>('');
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+
+  // Initialize CSRF token and session security
+  useEffect(() => {
+    const token = CSRFProtection.generateToken();
+    setCsrfToken(token);
+    SessionSecurity.initialize();
+    
+    // Log security event
+    SecurityAudit.logSecurityEvent('info', 'Sign-in page accessed', undefined, 'page_access');
+  }, []);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    const sanitized = sanitizeText(value);
+    setFormData(prev => ({ ...prev, [name]: sanitized }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Form submitted, attempting sign in...');
-    setError(null);
-
+    
+    // Validate CSRF token
+    if (!CSRFProtection.validateToken(csrfToken)) {
+      SecurityAudit.logSecurityEvent('security', 'CSRF token validation failed', undefined, 'csrf_attack');
+      setError('Security validation failed. Please refresh the page and try again.');
+      return;
+    }
+    
+    // Check rate limiting
+    const identifier = `auth_${formData.email}`;
+    if (!authRateLimiter.isAllowed(identifier)) {
+      const remainingTime = authRateLimiter.getTimeUntilReset(identifier);
+      const minutes = Math.ceil(remainingTime / (60 * 1000));
+      
+      SecurityAudit.logSecurityEvent('warn', `Rate limit exceeded for ${formData.email}`, undefined, 'rate_limit_exceeded');
+      setError(`Too many login attempts. Please try again in ${minutes} minutes.`);
+      return;
+    }
+    
+    // Validate email format only (don't validate password strength during sign-in)
+    const emailValidation = validateEmail(formData.email);
+    if (!emailValidation.isValid) {
+      SecurityAudit.logSecurityEvent('warn', `Invalid email format: ${formData.email}`, undefined, 'invalid_input');
+      setError(emailValidation.error || 'Invalid email');
+      return;
+    }
+    
+    // Don't validate password strength during sign-in - let Firebase handle authentication
+    // We'll check password strength after successful login and redirect if needed
+    
+    setLoading(true);
+    setError('');
+    
     try {
-      console.log('Calling signInWithEmailAndPassword...');
-      await signInWithEmailAndPassword(auth, formData.email, formData.password);
-      console.log('Sign in successful, refreshing user...');
+      const userCredential = await signInWithEmailAndPassword(auth, formData.email, formData.password);
       
-      await refreshUser();
-      console.log('User refreshed, calling onAuthSuccess...');
+      // Reset rate limiting on successful login
+      authRateLimiter.reset(identifier);
       
-      // Call onAuthSuccess with user data
-      onAuthSuccess({ email: formData.email });
-      console.log('onAuthSuccess called successfully');
+      // Log successful login
+      SecurityAudit.logSecurityEvent('info', `Successful login for ${formData.email}`, userCredential.user.uid, 'login_success');
+      
+      // Refresh CSRF token for new session
+      const newToken = CSRFProtection.refreshToken();
+      setCsrfToken(newToken);
+      
+      // Check if user needs password change after successful authentication
+      // This will be handled by the usePasswordSecurity hook in AppShell
+      onAuthSuccess({ email: userCredential.user.email });
+      
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
       console.error('Sign in error:', error);
+      
+      let errorMessage = 'Failed to sign in. Please check your credentials.';
+      
+      if (error && typeof error === 'object' && 'code' in error) {
+        const firebaseError = error as { code: string };
+        if (firebaseError.code === 'auth/user-not-found') {
+          errorMessage = 'No account found with this email address.';
+          SecurityAudit.logSecurityEvent('warn', `Login attempt with non-existent email: ${formData.email}`, undefined, 'login_failed');
+        } else if (firebaseError.code === 'auth/wrong-password') {
+          errorMessage = 'Incorrect password.';
+          SecurityAudit.logSecurityEvent('warn', `Login attempt with wrong password for: ${formData.email}`, undefined, 'login_failed');
+        } else if (firebaseError.code === 'auth/too-many-requests') {
+          errorMessage = 'Too many failed attempts. Please try again later.';
+          SecurityAudit.logSecurityEvent('error', `Account temporarily locked for: ${formData.email}`, undefined, 'account_locked');
+        } else if (firebaseError.code === 'auth/user-disabled') {
+          errorMessage = 'This account has been disabled.';
+          SecurityAudit.logSecurityEvent('error', `Login attempt to disabled account: ${formData.email}`, undefined, 'login_failed');
+        }
+      }
+      
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -39,26 +116,33 @@ export const SignIn = ({ onSwitchToRegister, onAuthSuccess }: { onSwitchToRegist
   };
 
   const handleGoogleSignIn = async () => {
-    console.log('Google sign in initiated...');
+    // Validate CSRF token
+    if (!CSRFProtection.validateToken(csrfToken)) {
+      SecurityAudit.logSecurityEvent('security', 'CSRF token validation failed for Google sign-in', undefined, 'csrf_attack');
+      setError('Security validation failed. Please refresh the page and try again.');
+      return;
+    }
+    
     setLoading(true);
     setError(null);
 
     try {
-      console.log('Calling signInWithPopup...');
       const userCredential = await signInWithPopup(auth, googleProvider);
-      console.log('Google sign in successful, refreshing user...');
+      
+      // Log successful Google login
+      SecurityAudit.logSecurityEvent('info', `Successful Google login for ${userCredential.user.email}`, userCredential.user.uid, 'google_login_success');
+      
+      // Refresh CSRF token for new session
+      const newToken = CSRFProtection.refreshToken();
+      setCsrfToken(newToken);
       
       await refreshUser();
-      console.log('User refreshed, calling onAuthSuccess...');
-      
-      // Call onAuthSuccess with user data
-      onAuthSuccess({
-        email: userCredential.user.email
-      });
-      console.log('onAuthSuccess called successfully');
+      onAuthSuccess({ email: userCredential.user.email });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
       console.error('Google sign in error:', error);
+      
+      SecurityAudit.logSecurityEvent('error', `Google sign-in failed: ${errorMessage}`, undefined, 'google_login_failed');
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -91,38 +175,50 @@ export const SignIn = ({ onSwitchToRegister, onAuthSuccess }: { onSwitchToRegist
         )}
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          {/* Hidden CSRF token */}
+          <input type="hidden" name="csrf_token" value={csrfToken} />
+          
           <div className="space-y-4">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Email Address
               </label>
               <input
-                id="email"
-                name="email"
                 type="email"
-                autoComplete="email"
-                required
+                name="email"
                 value={formData.email}
-                onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm dark:bg-gray-700"
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent dark:bg-neutral-700 dark:text-white"
+                required
                 placeholder="Enter your email"
               />
             </div>
+
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Password
               </label>
               <input
-                id="password"
-                name="password"
                 type="password"
-                autoComplete="current-password"
-                required
+                name="password"
                 value={formData.password}
-                onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
-                className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm dark:bg-gray-700"
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent dark:bg-neutral-700 dark:text-white"
+                required
                 placeholder="Enter your password"
               />
+              <div className="flex justify-between items-center mt-1">
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  Password must be at least 6 characters
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowForgotPassword(true)}
+                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:underline"
+                >
+                  Forgot Password?
+                </button>
+              </div>
             </div>
           </div>
 
@@ -142,6 +238,14 @@ export const SignIn = ({ onSwitchToRegister, onAuthSuccess }: { onSwitchToRegist
             </button>
           </div>
         </form>
+        
+        {/* Forgot Password Modal */}
+        {showForgotPassword && (
+          <ForgotPassword
+            onClose={() => setShowForgotPassword(false)}
+            onSwitchToSignIn={() => setShowForgotPassword(false)}
+          />
+        )}
 
         <div className="relative">
           <div className="absolute inset-0 flex items-center">

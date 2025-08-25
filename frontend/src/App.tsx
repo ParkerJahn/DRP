@@ -13,11 +13,13 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Dashboard } from './components/Dashboard';
 import TeamManagement from './components/TeamManagement';
 import Profile from './pages/Profile';
-import Messages from './pages/Messages';
-import Calendar from './pages/Calendar';
-import Programs from './pages/Programs';
-import Payments from './pages/Payments';
-import Packages from './pages/Packages';
+import MandatoryPasswordChange from './components/MandatoryPasswordChange';
+import { lazy, Suspense } from 'react';
+const Messages = lazy(() => import('./pages/Messages'));
+const Calendar = lazy(() => import('./pages/Calendar'));
+const Programs = lazy(() => import('./pages/Programs'));
+const Payments = lazy(() => import('./pages/Payments'));
+const Packages = lazy(() => import('./pages/Packages'));
 import { ROUTES } from './config/routes';
 import darkLogo from '/darkmodelogo.png';
 
@@ -25,7 +27,9 @@ import darkLogo from '/darkmodelogo.png';
 function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <Suspense fallback={<div className="p-6 text-gray-600 dark:text-gray-300">Loading…</div>}>
+        <AppContent />
+      </Suspense>
     </AuthProvider>
   );
 }
@@ -84,6 +88,7 @@ function AppContent() {
           <Route path="/app" element={<Navigate to={ROUTES.DASHBOARD} replace />} />
           <Route path="/app/dashboard" element={<Dashboard />} />
           <Route path="/app/profile" element={<Profile />} />
+          <Route path="/app/password-change-required" element={<MandatoryPasswordChange />} />
           <Route path="/app/messages" element={<Messages />} />
           <Route path="/app/calendar" element={<Calendar />} />
           {(role === 'PRO' || role === 'ATHLETE') && (

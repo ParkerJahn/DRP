@@ -8,7 +8,8 @@ import {
   where, 
   getDocs,
   serverTimestamp,
-  addDoc
+  addDoc,
+  limit
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import type { Event, EventType } from '../types';
@@ -76,8 +77,8 @@ export const getEventsByPro = async (proId: string) => {
     const eventsRef = collection(db, 'events');
     const q = query(
       eventsRef, 
-      where('proId', '==', proId)
-      // Removed orderBy to avoid composite index requirement
+      where('proId', '==', proId),
+      limit(100) // Add reasonable limit to control costs
     );
     const querySnapshot = await getDocs(q);
     
@@ -85,9 +86,6 @@ export const getEventsByPro = async (proId: string) => {
     querySnapshot.forEach((doc) => {
       events.push({ id: doc.id, ...doc.data() } as Event & { id: string });
     });
-    
-    // Sort client-side instead
-    events.sort((a, b) => a.startsAt.toDate().getTime() - b.startsAt.toDate().getTime());
     
     return { success: true, events };
   } catch (error) {

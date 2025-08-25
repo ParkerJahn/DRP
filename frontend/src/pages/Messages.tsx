@@ -10,6 +10,7 @@ import {
   updateChat
 } from '../services/messages';
 import { getUsersByRole } from '../services/firebase';
+import { validateTextContent, sanitizeText } from '../utils/validation';
 import type { Chat, Message, User } from '../types';
 import { Timestamp } from 'firebase/firestore';
 
@@ -486,7 +487,10 @@ const Messages: React.FC = () => {
                   <input
                     type="text"
                     value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
+                    onChange={(e) => {
+                      const sanitized = sanitizeText(e.target.value);
+                      setNewMessage(sanitized);
+                    }}
                     onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                     placeholder="Type your message..."
                     className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent dark:bg-neutral-700 dark:text-white"
@@ -541,7 +545,16 @@ const Messages: React.FC = () => {
                 <input
                   type="text"
                   value={chatForm.title}
-                  onChange={(e) => setChatForm(prev => ({ ...prev, title: e.target.value }))}
+                  onChange={(e) => {
+                    const sanitized = sanitizeText(e.target.value);
+                    setChatForm(prev => ({ ...prev, title: sanitized }));
+                  }}
+                  onBlur={(e) => {
+                    const validation = validateTextContent(e.target.value, 100);
+                    if (!validation.isValid) {
+                      setChatForm(prev => ({ ...prev, title: validation.sanitized }));
+                    }
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   placeholder="e.g., Team Training, Staff Meeting"
                   required

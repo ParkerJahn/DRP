@@ -24,18 +24,9 @@ function Header() {
     const { user, loading } = useAuth();
     const [profile, setProfile] = useState<ProfileData | null>(null);
     const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
-    const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
     const [isOpen, setIsOpen] = useState<boolean>(false); // Changed from isDrawerOpen
     const drawerRef = useRef<HTMLDivElement>(null);
     const navigate = useNavigate();
-
-    // Initialize theme from localStorage
-    useEffect(() => {
-        const savedTheme = localStorage.getItem('theme');
-        const shouldBeDark = savedTheme === 'dark';
-        setIsDarkMode(shouldBeDark);
-        document.documentElement.classList.toggle('dark', shouldBeDark);
-    }, []);
 
     // Check authentication status
     useEffect(() => {
@@ -87,13 +78,6 @@ function Header() {
         } catch (error) {
             console.error('Logout error:', error);
         }
-    };
-
-    const toggleDarkMode = () => {
-        const newTheme = !isDarkMode;
-        setIsDarkMode(newTheme);
-        localStorage.setItem('theme', newTheme ? 'dark' : 'light');
-        document.documentElement.classList.toggle('dark', newTheme);
     };
 
     // Simple icon component using emojis (no external dependencies)
@@ -221,17 +205,6 @@ function Header() {
                                 className="p-2 hover:bg-neutral-300 dark:hover:bg-neutral-700 rounded transition-colors"
                             >
                                 <Icon type="close" />
-                            </button>
-                        </div>
-
-                        {/* Theme Toggle */}
-                        <div className="p-4 border-b border-neutral-300 dark:border-neutral-600">
-                            <button
-                                onClick={toggleDarkMode}
-                                className="w-full flex items-center justify-between p-3 bg-neutral-300 dark:bg-neutral-600 rounded hover:bg-neutral-400 dark:hover:bg-neutral-700 transition-colors"
-                            >
-                                <span>Theme</span>
-                                {isDarkMode ? <Icon type="sun" /> : <Icon type="moon" />}
                             </button>
                         </div>
 

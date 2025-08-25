@@ -1,16 +1,17 @@
 import { 
   doc, 
-  setDoc, 
   getDoc, 
+  getDocs, 
+  addDoc, 
   updateDoc, 
-  deleteDoc,
+  deleteDoc, 
   collection, 
   query, 
   where, 
-  getDocs,
-  orderBy,
+  orderBy, 
   serverTimestamp,
-  writeBatch
+  writeBatch,
+  limit
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import type { Program, Phase } from '../types';
@@ -36,7 +37,7 @@ export const createExerciseCategory = async (categoryData: Omit<ExerciseCategory
       updatedAt: serverTimestamp(),
     };
     
-    await setDoc(categoryRef, newCategory);
+    await addDoc(collection(db, 'exercises'), newCategory);
     return { success: true, categoryId: categoryRef.id, category: newCategory };
   } catch (error) {
     console.error('Error creating exercise category:', error);
@@ -138,7 +139,7 @@ export const createProgram = async (programData: Omit<Program, 'createdAt' | 'up
       updatedAt: serverTimestamp(),
     };
     
-    await setDoc(programRef, newProgram);
+    await addDoc(collection(db, 'programs'), newProgram);
     return { success: true, programId: programRef.id, program: newProgram };
   } catch (error) {
     console.error('Error creating program:', error);
@@ -193,20 +194,21 @@ export const getProgramsByPro = async (proId: string) => {
     const programsRef = collection(db, 'programs');
     const q = query(
       programsRef, 
-      where('proId', '==', proId)
+      where('proId', '==', proId),
+      limit(50) // Add reasonable limit to control costs
       // Removed orderBy to avoid requiring composite index
     );
     const querySnapshot = await getDocs(q);
     
-    const programs: any[] = [];
+    const programs: Program[] = [];
     querySnapshot.forEach((doc) => {
-      programs.push({ id: doc.id, ...doc.data() });
+      programs.push({ id: doc.id, ...doc.data() } as Program);
     });
     
     // Sort in memory instead of requiring Firestore index
     programs.sort((a, b) => {
-      const dateA = a.createdAt?.toDate?.() || new Date(a.createdAt) || new Date(0);
-      const dateB = b.createdAt?.toDate?.() || new Date(b.createdAt) || new Date(0);
+      const dateA = a.createdAt?.toDate?.() || new Date(0);
+      const dateB = b.createdAt?.toDate?.() || new Date(0);
       return dateB.getTime() - dateA.getTime(); // Newest first
     });
     
@@ -343,7 +345,7 @@ export const createProgramTemplate = async (template: Omit<ProgramTemplate, 'id'
   try {
     const ref = doc(collection(db, 'program_templates'));
     const payload = { ...template, id: ref.id, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
-    await setDoc(ref, payload);
+    await addDoc(collection(db, 'program_templates'), payload);
     return { success: true, templateId: ref.id, template: payload };
   } catch (error) {
     console.error('Error creating template:', error);
@@ -395,7 +397,7 @@ export const assignTemplateToAthlete = async (templateId: string, proId: string,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
-    await setDoc(programRef, newProgram);
+    await addDoc(collection(db, 'programs'), newProgram);
     return { success: true, programId: programRef.id };
   } catch (error) {
     console.error('Error assigning template:', error);

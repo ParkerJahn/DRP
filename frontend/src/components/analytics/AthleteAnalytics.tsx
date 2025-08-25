@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { getAthletePackages } from '../../services/packages';
 import { getEventsByAttendee } from '../../services/calendar';
 import type { Event, PackagePurchase } from '../../types';
+import { RefreshIndicator } from '../RefreshIndicator';
 
 interface AthleteAnalyticsProps {
   userId: string;
@@ -30,7 +31,7 @@ interface PackageData {
   nextExpiry: Date | null;
 }
 
-const AthleteAnalytics: React.FC<AthleteAnalyticsProps> = ({ userId }) => {
+export const AthleteAnalytics: React.FC<AthleteAnalyticsProps> = ({ userId }) => {
   const [workoutData, setWorkoutData] = useState<WorkoutData>({
     total: 0,
     categories: {
@@ -50,36 +51,38 @@ const AthleteAnalytics: React.FC<AthleteAnalyticsProps> = ({ userId }) => {
   });
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const loadAthleteAnalytics = async () => {
-      try {
-        setLoading(true);
+  // Data loading function for smart polling
+  const loadAthleteAnalytics = useCallback(async () => {
+    try {
+      setLoading(true);
+      
+      // Load packages and events data
+      const packagesResult = await getAthletePackages(userId);
+      const eventsResult = await getEventsByAttendee(userId);
+
+      if (packagesResult.success && eventsResult.success) {
+        const packages = packagesResult.purchases || [];
+        const events = eventsResult.events || [];
         
-        // Load packages and events data
-        const packagesResult = await getAthletePackages(userId);
-        const eventsResult = await getEventsByAttendee(userId);
+        // Process workout data
+        const workouts = processWorkoutData(events);
+        setWorkoutData(workouts);
 
-        if (packagesResult.success && eventsResult.success) {
-          const packages = packagesResult.purchases || [];
-          const events = eventsResult.events || [];
-          
-          // Process workout data
-          const workouts = processWorkoutData(events);
-          setWorkoutData(workouts);
-
-          // Process package data
-          const packagesInfo = processPackageData(packages);
-          setPackageData(packagesInfo);
-        }
-      } catch (error) {
-        console.error('Error loading athlete analytics:', error);
-      } finally {
-        setLoading(false);
+        // Process package data
+        const packagesInfo = processPackageData(packages);
+        setPackageData(packagesInfo);
       }
-    };
-
-    loadAthleteAnalytics();
+    } catch (error) {
+      console.error('Error loading athlete analytics:', error);
+    } finally {
+      setLoading(false);
+    }
   }, [userId]);
+
+  // Initial load
+  useEffect(() => {
+    loadAthleteAnalytics();
+  }, [loadAthleteAnalytics]);
 
   const processWorkoutData = (events: Array<Event & { id: string }>): WorkoutData => {
     const workouts = events.filter(event => event.type === 'session');
@@ -160,11 +163,15 @@ const AthleteAnalytics: React.FC<AthleteAnalyticsProps> = ({ userId }) => {
   if (loading) {
     return (
       <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric">📊 Athlete Analytics</h3>
+          <RefreshIndicator onRefresh={loadAthleteAnalytics} interval={300000} /> {/* 5 minutes */}
+        </div>
         <div className="animate-pulse">
           <div className="h-8 bg-gray-200 dark:bg-gray-600 rounded w-1/4 mb-4"></div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="h-32 bg-gray-200 dark:bg-gray-600 rounded"></div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-24 bg-gray-200 dark:bg-gray-600 rounded"></div>
             ))}
           </div>
         </div>
@@ -174,6 +181,12 @@ const AthleteAnalytics: React.FC<AthleteAnalyticsProps> = ({ userId }) => {
 
   return (
     <div className="space-y-6">
+      {/* Header with Refresh Indicator */}
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric">📊 Athlete Analytics</h3>
+        <RefreshIndicator onRefresh={loadAthleteAnalytics} interval={300000} />
+      </div>
+
       {/* Package Overview */}
       <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
         <h3 className="text-xl font-semibold text-gray-900 dark:text-white font-ethnocentric mb-6">
@@ -303,6 +316,4 @@ const AthleteAnalytics: React.FC<AthleteAnalyticsProps> = ({ userId }) => {
       </div>
     </div>
   );
-};
-
-export default AthleteAnalytics; 
+}; 

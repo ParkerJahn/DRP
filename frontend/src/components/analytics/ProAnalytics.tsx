@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { getPaymentsByPro } from '../../services/payments';
-import { getUsersByRole } from '../../services/firebase';
+import React, { useState, useEffect, useCallback } from 'react';
 import { getEventsByPro } from '../../services/calendar';
+import { getPaymentsByPro } from '../../services/payments';
+import { getUsersByRole, getTeamMembers } from '../../services/firebase';
+import { RefreshIndicator } from '../RefreshIndicator';
 import type { Payment } from '../../types';
 
 interface ProAnalyticsProps {
@@ -22,7 +23,7 @@ interface TeamPerformance {
   completionRate: number;
 }
 
-const ProAnalytics: React.FC<ProAnalyticsProps> = ({ proId }) => {
+export const ProAnalytics: React.FC<ProAnalyticsProps> = ({ proId }) => {
   const [revenueData, setRevenueData] = useState<RevenueData[]>([]);
   const [teamPerformance, setTeamPerformance] = useState<TeamPerformance>({
     staffCount: 0,
@@ -33,37 +34,63 @@ const ProAnalytics: React.FC<ProAnalyticsProps> = ({ proId }) => {
   const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState<'month' | 'quarter' | 'year'>('month');
 
-  useEffect(() => {
-    const loadAnalytics = async () => {
-      try {
-        setLoading(true);
-        
-        // Load payments data
-        const paymentsResult = await getPaymentsByPro(proId);
-        const usersResult = await getUsersByRole(proId, 'STAFF');
-        const eventsResult = await getEventsByPro(proId);
+  // Data loading function for smart polling
+  const loadProAnalytics = useCallback(async () => {
+    try {
+      setLoading(true);
+      
+      // Load payments data
+      const paymentsResult = await getPaymentsByPro(proId);
+      const staffResult = await getUsersByRole(proId, 'STAFF');
+      const athletesResult = await getUsersByRole(proId, 'ATHLETE');
+      const eventsResult = await getEventsByPro(proId);
 
-        if (paymentsResult.success && usersResult.success) {
-          // Process revenue data
-          const revenue = processRevenueData(paymentsResult.payments || []);
-          setRevenueData(revenue);
-
-          // Process team performance
-          const performance = processTeamPerformance(
-            usersResult.users || [],
-            eventsResult.events || []
-          );
-          setTeamPerformance(performance);
+      // Fallback: if role-specific queries fail, try to get all team members
+      let allUsers: Array<{ role: string; uid?: string; displayName?: string }> = [];
+      if (staffResult.success && athletesResult.success) {
+        allUsers = [
+          ...(staffResult.users || []),
+          ...(athletesResult.users || [])
+        ];
+      } else {
+        // Fallback to get all team members
+        const teamMembersResult = await getTeamMembers(proId);
+        if (teamMembersResult.success) {
+          allUsers = teamMembersResult.members || [];
         }
-      } catch (error) {
-        console.error('Error loading PRO analytics:', error);
-      } finally {
-        setLoading(false);
       }
-    };
 
-    loadAnalytics();
-  }, [proId, selectedPeriod]);
+      if (paymentsResult.success && allUsers.length > 0) {
+        // Process revenue data
+        const revenue = processRevenueData(paymentsResult.payments || []);
+        setRevenueData(revenue);
+
+        // Debug logging
+        console.log('🔍 Team Composition Debug:', {
+          proId,
+          staffCount: allUsers.filter(u => u.role === 'STAFF').length,
+          athleteCount: allUsers.filter(u => u.role === 'ATHLETE').length,
+          totalUsers: allUsers.length,
+          allUsers: allUsers.map(u => ({ id: u.uid, role: u.role, name: u.displayName }))
+        });
+        
+        const performance = processTeamPerformance(
+          allUsers,
+          eventsResult.events || []
+        );
+        setTeamPerformance(performance);
+      }
+    } catch (error) {
+      console.error('Error loading PRO analytics:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [proId]);
+
+  // Initial load
+  useEffect(() => {
+    loadProAnalytics();
+  }, [loadProAnalytics]);
 
   const processRevenueData = (payments: Payment[]): RevenueData[] => {
     const now = new Date();
@@ -95,14 +122,14 @@ const ProAnalytics: React.FC<ProAnalyticsProps> = ({ proId }) => {
     return months;
   };
 
-  const processTeamPerformance = (users: any[], events: any[]) => {
+  const processTeamPerformance = (users: Array<{ role: string }>, events: Array<{ type: string; status?: string }>) => {
     const staffCount = users.filter(u => u.role === 'STAFF').length;
     const athleteCount = users.filter(u => u.role === 'ATHLETE').length;
     const activePrograms = events.filter(e => e.type === 'session').length;
     
     // Calculate completion rate (simplified)
     const totalSessions = events.filter(e => e.type === 'session').length;
-    const completedSessions = events.filter(e => e.type === 'session' && (e as any).status === 'completed').length;
+    const completedSessions = events.filter(e => e.type === 'session' && e.status === 'completed').length;
     const completionRate = totalSessions > 0 ? (completedSessions / totalSessions) * 100 : 0;
 
     return {
@@ -123,11 +150,15 @@ const ProAnalytics: React.FC<ProAnalyticsProps> = ({ proId }) => {
   if (loading) {
     return (
       <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric">📊 PRO Analytics</h3>
+          <RefreshIndicator onRefresh={loadProAnalytics} interval={300000} /> {/* 5 minutes */}
+        </div>
         <div className="animate-pulse">
           <div className="h-8 bg-gray-200 dark:bg-gray-600 rounded w-1/4 mb-4"></div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-32 bg-gray-200 dark:bg-gray-600 rounded"></div>
+              <div key={i} className="h-24 bg-gray-200 dark:bg-gray-600 rounded"></div>
             ))}
           </div>
         </div>
@@ -137,6 +168,12 @@ const ProAnalytics: React.FC<ProAnalyticsProps> = ({ proId }) => {
 
   return (
     <div className="space-y-6">
+      {/* Header with Refresh Indicator */}
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric">📊 PRO Analytics</h3>
+        <RefreshIndicator onRefresh={loadProAnalytics} interval={300000} />
+      </div>
+
       {/* Revenue Overview */}
       <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-6">
@@ -287,6 +324,4 @@ const ProAnalytics: React.FC<ProAnalyticsProps> = ({ proId }) => {
       </div>
     </div>
   );
-};
-
-export default ProAnalytics; 
+}; 

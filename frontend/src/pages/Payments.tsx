@@ -6,6 +6,7 @@ import {
   getPaymentSummary
 } from '../services/payments';
 import { createTrainingSessionCheckout, redirectToCheckout } from '../services/stripe';
+import { BusinessIntelligence } from '../components/analytics/BusinessIntelligence';
 import type { Payment, PaymentStatus } from '../types';
 
 const Payments: React.FC = () => {
@@ -222,6 +223,13 @@ const Payments: React.FC = () => {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Business Intelligence (PRO only) */}
+        {canViewAnalytics && (
+          <div className="mb-8">
+            <BusinessIntelligence proId={user.proId || user.uid} />
           </div>
         )}
 

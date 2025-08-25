@@ -8,9 +8,9 @@ import { getPaymentsByPro, getPaymentsByPayer } from '../services/payments';
 import { getPackagesByPro, getAthletePackages } from '../services/packages';
 import type { Event } from '../types';
 import { Timestamp } from 'firebase/firestore';
-import ProAnalytics from './analytics/ProAnalytics';
-import StaffAnalytics from './analytics/StaffAnalytics';
-import AthleteAnalytics from './analytics/AthleteAnalytics';
+import { ProAnalytics } from './analytics/ProAnalytics';
+import { StaffAnalytics } from './analytics/StaffAnalytics';
+import { AthleteAnalytics } from './analytics/AthleteAnalytics';
 
 interface DashboardStats {
   staffCount: number;
@@ -42,7 +42,7 @@ const WeeklyCalendar: React.FC<{ userId: string; proId: string; userRole: UserRo
         setLoading(true);
         let eventsResult;
         
-        if (userRole === 'PRO') {
+        if (userRole === 'PRO' || userRole === 'STAFF') {
           eventsResult = await getEventsByPro(proId);
         } else {
           eventsResult = await getEventsByAttendee(userId);
@@ -241,7 +241,7 @@ const CalendarWidget: React.FC<{ userId: string; proId: string; userRole: UserRo
         setLoading(true);
         let eventsResult;
         
-        if (userRole === 'PRO') {
+        if (userRole === 'PRO' || userRole === 'STAFF') {
           eventsResult = await getEventsByPro(proId);
         } else {
           eventsResult = await getEventsByAttendee(userId);
@@ -355,7 +355,7 @@ const UpcomingEventsWidget: React.FC<{ userId: string; proId: string; userRole: 
         setLoading(true);
         let eventsResult;
         
-        if (userRole === 'PRO') {
+        if (userRole === 'PRO' || userRole === 'STAFF') {
           eventsResult = await getEventsByPro(proId);
         } else {
           eventsResult = await getEventsByAttendee(userId);

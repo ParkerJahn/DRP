@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { getEventsByPro } from '../../services/calendar';
 import { getUsersByRole } from '../../services/firebase';
+import { RefreshIndicator } from '../RefreshIndicator';
 import type { Event } from '../../types';
 
 interface StaffAnalyticsProps {
@@ -35,7 +36,7 @@ interface UserData {
   };
 }
 
-const StaffAnalytics: React.FC<StaffAnalyticsProps> = ({ proId }) => {
+export const StaffAnalytics: React.FC<StaffAnalyticsProps> = ({ proId }) => {
   const [sessionData, setSessionData] = useState<SessionData>({
     upcoming: 0,
     today: 0,
@@ -52,43 +53,45 @@ const StaffAnalytics: React.FC<StaffAnalyticsProps> = ({ proId }) => {
   const [upcomingSessions, setUpcomingSessions] = useState<Array<ExtendedEvent>>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const loadStaffAnalytics = async () => {
-      try {
-        setLoading(true);
+  // Data loading function for smart polling
+  const loadStaffAnalytics = useCallback(async () => {
+    try {
+      setLoading(true);
+      
+      // Load events data
+      const eventsResult = await getEventsByPro(proId);
+      const usersResult = await getUsersByRole(proId, 'ATHLETE');
+
+      if (eventsResult.success && usersResult.success) {
+        const events = eventsResult.events || [];
+        const users = usersResult.users || [];
         
-        // Load events data
-        const eventsResult = await getEventsByPro(proId);
-        const usersResult = await getUsersByRole(proId, 'ATHLETE');
+        // Process session data
+        const sessions = processSessionData(events);
+        setSessionData(sessions);
 
-        if (eventsResult.success && usersResult.success) {
-          const events = eventsResult.events || [];
-          const users = usersResult.users || [];
-          
-          // Process session data
-          const sessions = processSessionData(events);
-          setSessionData(sessions);
+        // Process athlete data
+        const athletes = processAthleteData(users, events);
+        setAthleteData(athletes);
 
-          // Process athlete data
-          const athletes = processAthleteData(users, events);
-          setAthleteData(athletes);
-
-          // Get upcoming sessions
-          const upcoming = events
-            .filter(event => event.type === 'session' && event.startsAt.toDate() > new Date())
-            .sort((a, b) => a.startsAt.toDate().getTime() - b.startsAt.toDate().getTime())
-            .slice(0, 5);
-          setUpcomingSessions(upcoming);
-        }
-      } catch (error) {
-        console.error('Error loading staff analytics:', error);
-      } finally {
-        setLoading(false);
+        // Get upcoming sessions
+        const upcoming = events
+          .filter((event: ExtendedEvent) => event.type === 'session' && event.startsAt.toDate() > new Date())
+          .sort((a: ExtendedEvent, b: ExtendedEvent) => a.startsAt.toDate().getTime() - b.startsAt.toDate().getTime())
+          .slice(0, 5);
+        setUpcomingSessions(upcoming);
       }
-    };
-
-    loadStaffAnalytics();
+    } catch (error) {
+      console.error('Error loading staff analytics:', error);
+    } finally {
+      setLoading(false);
+    }
   }, [proId]);
+
+  // Initial load
+  useEffect(() => {
+    loadStaffAnalytics();
+  }, [loadStaffAnalytics]);
 
   const processSessionData = (events: Array<ExtendedEvent>): SessionData => {
     const now = new Date();
@@ -143,11 +146,15 @@ const StaffAnalytics: React.FC<StaffAnalyticsProps> = ({ proId }) => {
   if (loading) {
     return (
       <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric">📊 Staff Analytics</h3>
+          <RefreshIndicator onRefresh={loadStaffAnalytics} interval={300000} /> {/* 5 minutes */}
+        </div>
         <div className="animate-pulse">
           <div className="h-8 bg-gray-200 dark:bg-gray-600 rounded w-1/4 mb-4"></div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-32 bg-gray-200 dark:bg-gray-600 rounded"></div>
+              <div key={i} className="h-24 bg-gray-200 dark:bg-gray-600 rounded"></div>
             ))}
           </div>
         </div>
@@ -157,6 +164,12 @@ const StaffAnalytics: React.FC<StaffAnalyticsProps> = ({ proId }) => {
 
   return (
     <div className="space-y-6">
+      {/* Header with Refresh Indicator */}
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric">📊 Staff Analytics</h3>
+        <RefreshIndicator onRefresh={loadStaffAnalytics} interval={300000} />
+      </div>
+
       {/* Session Overview */}
       <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
         <h3 className="text-xl font-semibold text-gray-900 dark:text-white font-ethnocentric mb-6">
@@ -301,6 +314,4 @@ const StaffAnalytics: React.FC<StaffAnalyticsProps> = ({ proId }) => {
       </div>
     </div>
   );
-};
-
-export default StaffAnalytics; 
+}; 

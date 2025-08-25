@@ -4,6 +4,7 @@ import { db } from '../config/firebase';
 import { collection, query, where, getDocs, getDoc, doc, setDoc } from 'firebase/firestore';
 import QRCode from 'qrcode';
 import { getTeamAvailabilitySlots } from '../services/availability';
+import { removeTeamMember } from '../services/teamManagement';
 import type { AvailabilitySlot } from '../services/availability';
 
 interface TeamMember {
@@ -49,10 +50,14 @@ function TeamManagement() {
   const [teamName, setTeamName] = useState<string>('');
   const [isEditingTeamName, setIsEditingTeamName] = useState(false);
   const [editingTeamName, setEditingTeamName] = useState<string>('');
+  const [isRemovingMember, setIsRemovingMember] = useState(false);
+  const [showRemoveConfirmation, setShowRemoveConfirmation] = useState(false);
+  const [memberToRemove, setMemberToRemove] = useState<TeamMember | null>(null);
 
   // Define role-based variables
   const isStaff = role === 'STAFF';
   const isAthlete = role === 'ATHLETE';
+  const isPro = role === 'PRO';
 
   // Profile Modal Component
   const ProfileModal: React.FC<ProfileModalProps> = ({ member, isOpen, onClose }) => {
@@ -240,12 +245,140 @@ function TeamManagement() {
               </div>
             </div>
 
-            <div className="mt-6 flex justify-end">
+            <div className="mt-6 flex justify-end space-x-3">
+              {isPro && member.uid !== user?.uid && (
+                <button
+                  onClick={() => {
+                    setMemberToRemove(member);
+                    setShowRemoveConfirmation(true);
+                  }}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors duration-200 flex items-center space-x-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  <span>Remove Member</span>
+                </button>
+              )}
               <button
                 onClick={onClose}
                 className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-medium rounded-lg transition-colors duration-200"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Remove member function
+  const handleRemoveMember = async (member: TeamMember) => {
+    if (!user || role !== 'PRO') return;
+    
+    try {
+      setIsRemovingMember(true);
+      
+      // Call the Cloud Function to remove the member
+      const result = await removeTeamMember(member.uid);
+
+      if (result.success) {
+        // Reload team data to reflect the removal
+        loadTeamData();
+        alert(`✅ ${member.displayName} has been removed from your team.`);
+      } else {
+        throw new Error(result.error || 'Failed to remove team member.');
+      }
+      
+      // Close modals
+      setShowRemoveConfirmation(false);
+      setMemberToRemove(null);
+      setIsProfileModalOpen(false);
+      
+    } catch (error) {
+      console.error('Error removing team member:', error);
+      alert(`❌ Error removing team member: ${(error as Error).message}`);
+    } finally {
+      setIsRemovingMember(false);
+    }
+  };
+
+  // Remove Confirmation Modal
+  const RemoveConfirmationModal: React.FC = () => {
+    if (!showRemoveConfirmation || !memberToRemove) return null;
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+          <div className="p-6">
+            <div className="flex items-center mb-4">
+              <div className="w-12 h-12 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center mr-4">
+                <span className="text-2xl">⚠️</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric">
+                  Remove Team Member
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  This action cannot be undone
+                </p>
+              </div>
+            </div>
+            
+            <div className="mb-6">
+              <p className="text-gray-700 dark:text-gray-300 mb-4">
+                Are you sure you want to remove <span className="font-semibold">{memberToRemove.displayName}</span> from your team?
+              </p>
+              
+              <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                <div className="flex items-start">
+                  <div className="flex-shrink-0">
+                    <span className="text-yellow-600 dark:text-yellow-400">ℹ️</span>
+                  </div>
+                  <div className="ml-3">
+                    <h4 className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                      What happens next?
+                    </h4>
+                    <div className="mt-2 text-sm text-yellow-700 dark:text-yellow-300">
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>Their account becomes inactive</li>
+                        <li>They lose access to team resources</li>
+                        <li>They'll need a new invite link to rejoin any team</li>
+                        <li>All their data remains but is no longer accessible</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setShowRemoveConfirmation(false);
+                  setMemberToRemove(null);
+                }}
+                disabled={isRemovingMember}
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-medium rounded-lg transition-colors duration-200 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleRemoveMember(memberToRemove)}
+                disabled={isRemovingMember}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors duration-200 disabled:opacity-50 flex items-center space-x-2"
+              >
+                {isRemovingMember ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Removing...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Remove Member</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -263,7 +396,7 @@ function TeamManagement() {
       
       // Determine the proId to query for team members
       let teamProId: string;
-      if (role === 'PRO') {
+      if (isPro) {
         // PRO users are looking for their team members
         teamProId = user.uid;
       } else {
@@ -299,7 +432,7 @@ function TeamManagement() {
       // If this is a PRO user, also add themselves to the team list
       
       
-      if (role === 'PRO') {
+      if (isPro) {
         // Check if PRO user is already in the list
         const proUserExists = members.some(member => member.uid === user.uid);
         if (!proUserExists) {
@@ -699,6 +832,15 @@ function TeamManagement() {
                         <span className="text-sm text-gray-500 dark:text-gray-400">
                           Joined {member.joinedAt.toLocaleDateString()}
                         </span>
+                        {isPro && (
+                          <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center">
+                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            Click to manage
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -760,6 +902,15 @@ function TeamManagement() {
                         <span className="text-sm text-gray-500 dark:text-gray-400">
                           Joined {member.joinedAt.toLocaleDateString()}
                         </span>
+                        {isPro && (
+                          <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center">
+                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            Click to manage
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -1080,7 +1231,7 @@ function TeamManagement() {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-green-50 dark:bg-green-900/20">
             <h3 className="text-lg font-semibold text-green-900 dark:text-green-100 flex items-center">
-              👥 Staff Members ({teamMembers.filter(member => member.role === 'PRO').length + teamMembers.filter(member => member.role === 'STAFF').length})
+                             👥 Staff Members ({teamMembers.filter(member => member.role === 'PRO').length + teamMembers.filter(member => member.role === 'STAFF').length})
             </h3>
           </div>
           
@@ -1163,6 +1314,7 @@ function TeamManagement() {
         </div>
       </div>
       <ProfileModal member={selectedMember} isOpen={isProfileModalOpen} onClose={closeProfileModal} />
+      <RemoveConfirmationModal />
     </div>
   );
 }

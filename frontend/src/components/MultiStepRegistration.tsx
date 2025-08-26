@@ -4,10 +4,12 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import { auth } from '../config/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import PasswordStrengthIndicator from './PasswordStrengthIndicator';
 
 interface RegistrationData {
   email: string;
   password: string;
+  confirmPassword: string;
   firstName: string;
   lastName: string;
   phoneNumber: string;
@@ -26,6 +28,7 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
   const [registrationData, setRegistrationData] = useState<RegistrationData>({
     email: '',
     password: '',
+    confirmPassword: '',
     firstName: '',
     lastName: '',
     phoneNumber: '',
@@ -39,6 +42,20 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
     e.preventDefault();
     setLoading(true);
     setError(null);
+
+    // Validate password requirements
+    if (registrationData.password.length < 6) {
+      setError('Password must be at least 6 characters long.');
+      setLoading(false);
+      return;
+    }
+
+    // Validate password confirmation
+    if (registrationData.password !== registrationData.confirmPassword) {
+      setError('Passwords do not match. Please confirm your password.');
+      setLoading(false);
+      return;
+    }
 
     try {
       const userCredential = await createUserWithEmailAndPassword(
@@ -214,6 +231,18 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
           </div>
 
           {/* Email Registration Form */}
+          <div className="mt-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+            <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
+              Password Requirements
+            </h3>
+            <ul className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+              <li>• At least 6 characters long</li>
+              <li>• Include uppercase and lowercase letters</li>
+              <li>• Include numbers and special characters</li>
+              <li>• Avoid common weak passwords</li>
+            </ul>
+          </div>
+
           <form className="mt-8 space-y-6" onSubmit={handleEmailRegistration}>
             <div className="space-y-4">
               <div>
@@ -247,13 +276,47 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
                   className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm dark:bg-gray-700"
                   placeholder="Create a password"
                 />
+                <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Password must be at least 6 characters long
+                </div>
+                <PasswordStrengthIndicator password={registrationData.password} showStrength={true} />
+              </div>
+              <div>
+                <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Confirm Password
+                </label>
+                <input
+                  id="confirmPassword"
+                  name="confirmPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  value={registrationData.confirmPassword}
+                  onChange={(e) => updateRegistrationData('confirmPassword', e.target.value)}
+                  className={`mt-1 appearance-none relative block w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm dark:bg-gray-700 ${
+                    registrationData.confirmPassword && registrationData.password !== registrationData.confirmPassword
+                      ? 'border-red-300 dark:border-red-600'
+                      : 'border-gray-300 dark:border-gray-600'
+                  } placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white`}
+                  placeholder="Confirm your password"
+                />
+                {registrationData.confirmPassword && registrationData.password !== registrationData.confirmPassword && (
+                  <div className="mt-1 text-xs text-red-600 dark:text-red-400">
+                    Passwords do not match
+                  </div>
+                )}
+                {registrationData.confirmPassword && registrationData.password === registrationData.confirmPassword && (
+                  <div className="mt-1 text-xs text-green-600 dark:text-green-400">
+                    ✓ Passwords match
+                  </div>
+                )}
               </div>
             </div>
 
             <div>
               <button
                 type="submit"
-                disabled={loading || !registrationData.email || !registrationData.password}
+                disabled={loading || !registrationData.email || !registrationData.password || !registrationData.confirmPassword || registrationData.password !== registrationData.confirmPassword || registrationData.password.length < 6}
                 className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Creating Account...' : 'Continue to Profile Setup'}

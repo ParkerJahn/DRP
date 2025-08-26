@@ -5,6 +5,7 @@ import type { AuthError } from 'firebase/auth';
 import { auth } from '../config/firebase';
 import { useAuth } from '../hooks/useAuth';
 import type { UserRole } from '../types';
+import PasswordStrengthIndicator from '../components/PasswordStrengthIndicator';
 
 interface InviteData {
   id: string;
@@ -592,6 +593,21 @@ const JoinInvite: React.FC = () => {
           </div>
         )}
 
+        {/* Password Requirements for New Users */}
+        {isNewUser && (
+          <div className="mb-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+            <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
+              Password Requirements
+            </h3>
+            <ul className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+              <li>• At least 6 characters long</li>
+              <li>• Include uppercase and lowercase letters</li>
+              <li>• Include numbers and special characters</li>
+              <li>• Avoid common weak passwords</li>
+            </ul>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Show name fields for both sign-in and sign-up */}
           <div className="grid grid-cols-2 gap-4">
@@ -666,6 +682,10 @@ const JoinInvite: React.FC = () => {
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white"
               required
             />
+            <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Password must be at least 6 characters long
+            </div>
+            <PasswordStrengthIndicator password={formData.password} showStrength={true} />
           </div>
 
           {/* Show confirm password only for new accounts */}
@@ -679,9 +699,23 @@ const JoinInvite: React.FC = () => {
                 type="password"
                 value={formData.confirmPassword}
                 onChange={(e) => handleFormChange('confirmPassword', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white"
+                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white ${
+                  formData.confirmPassword && formData.password !== formData.confirmPassword
+                    ? 'border-red-300 dark:border-red-600'
+                    : 'border-gray-300 dark:border-gray-600'
+                }`}
                 required
               />
+              {formData.confirmPassword && formData.password !== formData.confirmPassword && (
+                <div className="mt-1 text-xs text-red-600 dark:text-red-400">
+                  Passwords do not match
+                </div>
+              )}
+              {formData.confirmPassword && formData.password === formData.confirmPassword && (
+                <div className="mt-1 text-xs text-green-600 dark:text-green-400">
+                  ✓ Passwords match
+                </div>
+              )}
             </div>
           )}
 

@@ -5,6 +5,8 @@ import { auth } from '../config/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import PasswordStrengthIndicator from './PasswordStrengthIndicator';
+import ForgotPassword from './ForgotPassword';
+import { cleanupOrphanedUsers } from '../services/teamManagement';
 
 interface RegistrationData {
   email: string;
@@ -27,6 +29,7 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
   const [error, setError] = useState<string | null>(null);
   const [isGoogleSignIn, setIsGoogleSignIn] = useState(false);
   const [googleUser, setGoogleUser] = useState<User | null>(null);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [registrationData, setRegistrationData] = useState<RegistrationData>({
     email: '',
     password: '',
@@ -95,6 +98,52 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
     }
   };
 
+  // Debug function to check if user exists in Firestore
+  const debugUserExistence = async (email: string) => {
+    try {
+      // Note: We can't check Firestore during registration due to permissions
+      // The user exists in Firebase Auth but may be missing from Firestore
+      console.log('🔍 Debug Info for email:', email);
+      console.log('❌ User exists in Firebase Auth (causing email-already-in-use error)');
+      console.log('❓ User status in Firestore: Unknown (permission blocked)');
+      console.log('💡 This suggests a previous incomplete registration');
+      console.log('🛠️ Solution: User needs to either:');
+      console.log('   1. Try signing in with their password');
+      console.log('   2. Use "Forgot Password" to reset');
+      console.log('   3. Contact support to clean up orphaned account');
+      
+      return 'orphaned_auth_user';
+    } catch (error) {
+      console.error('Error in debug function:', error);
+      return 'debug_error';
+    }
+  };
+
+  // Clean up orphaned account function
+  const handleCleanupOrphanedAccount = async () => {
+    if (!registrationData.email) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const result = await cleanupOrphanedUsers(registrationData.email);
+      
+      if (result.success) {
+        setError('✅ Orphaned account cleaned up successfully! You can now continue with registration.');
+        // Clear the email field to allow fresh registration
+        setRegistrationData(prev => ({ ...prev, email: '' }));
+      } else {
+        setError(`❌ Cleanup failed: ${result.error}`);
+      }
+    } catch (error: unknown) {
+      setError('❌ Error during cleanup. Please try again or contact support.');
+      console.error('Cleanup error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Step 2: Profile Setup - Now create account and save profile
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -158,11 +207,13 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
       console.error('Registration error:', error);
       
       let errorMessage = 'Failed to create account. Please try again.';
+      let showRecoveryOption = false;
       
       if (error && typeof error === 'object' && 'code' in error) {
         const firebaseError = error as { code: string };
         if (firebaseError.code === 'auth/email-already-in-use') {
-          errorMessage = 'An account with this email already exists. Please sign in instead.';
+          errorMessage = 'An account with this email already exists. This usually means you have an incomplete account from a previous registration attempt. Please try signing in instead, or use "Forgot Password" if you don\'t remember your password.';
+          showRecoveryOption = true;
         } else if (firebaseError.code === 'auth/invalid-email') {
           errorMessage = 'Please enter a valid email address.';
         } else if (firebaseError.code === 'auth/weak-password') {
@@ -171,6 +222,18 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
       }
       
       setError(errorMessage);
+      
+      // If it's an email-already-in-use error, show recovery option
+      if (showRecoveryOption) {
+        console.warn('Email already in use detected. This might indicate:');
+        console.warn('1. User exists in Firebase Auth but not in Firestore');
+        console.warn('2. Previous incomplete registration');
+        console.warn('3. Data synchronization issue');
+        console.warn('Recommendation: User should try signing in instead');
+        
+        // Debug: Check if user exists in Firestore
+        debugUserExistence(registrationData.email);
+      }
     } finally {
       setLoading(false);
     }
@@ -212,6 +275,34 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
                 </div>
                 <div className="ml-3">
                   <p className="text-sm text-red-700">{error}</p>
+                  {error.includes('already exists') && (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-xs text-red-600">
+                        <strong>What happened?</strong> Your email was used in a previous registration that didn't complete.
+                      </p>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={onSwitchToSignIn}
+                          className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-md transition-colors duration-200"
+                        >
+                          Try Signing In
+                        </button>
+                        <button
+                          onClick={() => setShowForgotPassword(true)}
+                          className="text-xs bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded-md transition-colors duration-200"
+                        >
+                          Forgot Password?
+                        </button>
+                        <button
+                          onClick={handleCleanupOrphanedAccount}
+                          disabled={loading}
+                          className="text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-md transition-colors duration-200 disabled:opacity-50"
+                        >
+                          {loading ? 'Cleaning...' : 'Clean Up Account'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -473,6 +564,14 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
           <p>All fields marked with * are required</p>
         </div>
       </div>
+      
+      {/* Forgot Password Modal */}
+      {showForgotPassword && (
+        <ForgotPassword
+          onClose={() => setShowForgotPassword(false)}
+          onSwitchToSignIn={() => setShowForgotPassword(false)}
+        />
+      )}
     </div>
   );
 }

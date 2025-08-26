@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import type { User as FirebaseUser } from 'firebase/auth';
+import type { User } from 'firebase/auth';
 import { auth } from '../config/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -25,6 +25,8 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isGoogleSignIn, setIsGoogleSignIn] = useState(false);
+  const [googleUser, setGoogleUser] = useState<User | null>(null);
   const [registrationData, setRegistrationData] = useState<RegistrationData>({
     email: '',
     password: '',
@@ -35,9 +37,7 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
     role: 'ATHLETE'
   });
 
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-
-  // Step 1: Authentication
+  // Step 1: Authentication - Only validate, don't create account yet
   const handleEmailRegistration = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -57,21 +57,16 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
       return;
     }
 
-    try {
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        registrationData.email,
-        registrationData.password
-      );
-      
-      setFirebaseUser(userCredential.user);
-      setCurrentStep(2);
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-      setError(errorMessage);
-    } finally {
+    // Validate email format
+    if (!registrationData.email || !registrationData.email.includes('@')) {
+      setError('Please enter a valid email address.');
       setLoading(false);
+      return;
     }
+
+    // All validations passed - move to profile setup
+    setCurrentStep(2);
+    setLoading(false);
   };
 
   const handleGoogleSignIn = async () => {
@@ -82,14 +77,15 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
       const provider = new GoogleAuthProvider();
       const userCredential = await signInWithPopup(auth, provider);
       
-      setFirebaseUser(userCredential.user);
-      
       // Pre-fill email if from Google
       setRegistrationData(prev => ({
         ...prev,
         email: userCredential.user.email || ''
       }));
+      setIsGoogleSignIn(true);
+      setGoogleUser(userCredential.user);
       
+      // Move to profile setup - don't create account yet
       setCurrentStep(2);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
@@ -99,63 +95,82 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
     }
   };
 
-  // Step 2: Profile Setup
+  // Step 2: Profile Setup - Now create account and save profile
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!firebaseUser) {
-      setError('Authentication required. Please go back to step 1.');
-      return;
-    }
+    setLoading(true);
+    setError(null);
 
     // Validate all required fields
     if (!registrationData.firstName.trim() || 
         !registrationData.lastName.trim() || 
         !registrationData.phoneNumber.trim()) {
       setError('All fields are required.');
+      setLoading(false);
       return;
     }
 
-    setLoading(true);
-    setError(null);
-
     try {
-      // Create user document in Firestore
-      const userRef = doc(db, 'users', firebaseUser.uid);
+      let newUser: User;
       
-      const userData = {
-        uid: firebaseUser.uid,
-        email: registrationData.email || firebaseUser.email,
+      if (isGoogleSignIn && googleUser) {
+        // User already has Firebase account from Google sign-in
+        newUser = googleUser;
+      } else {
+        // Create the Firebase user account with email/password from Phase 1
+        const userCredential = await createUserWithEmailAndPassword(
+          auth,
+          registrationData.email,
+          registrationData.password
+        );
+        newUser = userCredential.user;
+      }
+
+      // Create the user profile in Firestore
+      const userProfile = {
+        uid: newUser.uid,
+        email: registrationData.email || newUser.email,
         displayName: `${registrationData.firstName} ${registrationData.lastName}`,
         firstName: registrationData.firstName,
         lastName: registrationData.lastName,
         phoneNumber: registrationData.phoneNumber,
         role: registrationData.role,
-        photoURL: firebaseUser.photoURL || null,
-        proId: null, // Will be set by PRO if invited
-        proStatus: registrationData.role === 'PRO' ? 'inactive' : null, // PRO needs to complete Stripe
+        status: 'active',
         createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        proId: null, // Will be set when they join a team
+        isEmailVerified: newUser.emailVerified || false,
+        photoURL: newUser.photoURL || null
       };
 
-      // Filter out undefined values
-      const cleanUserData = Object.fromEntries(
-        Object.entries(userData).filter(([, value]) => value !== undefined)
-      );
+      await setDoc(doc(db, 'users', newUser.uid), userProfile);
 
-      await setDoc(userRef, cleanUserData);
-
-      // Call success callback
+      // Registration complete - call the success callback
       onRegistrationComplete({
-        uid: firebaseUser.uid,
-        email: userData.email,
-        displayName: userData.displayName,
-        role: userData.role
+        uid: newUser.uid,
+        email: newUser.email,
+        displayName: userProfile.displayName,
+        role: registrationData.role
       });
 
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-      setError(`Failed to create profile: ${errorMessage}`);
+      console.error('Registration error:', error);
+      
+      let errorMessage = 'Failed to create account. Please try again.';
+      
+      if (error && typeof error === 'object' && 'code' in error) {
+        const firebaseError = error as { code: string };
+        if (firebaseError.code === 'auth/email-already-in-use') {
+          errorMessage = 'An account with this email already exists. Please sign in instead.';
+        } else if (firebaseError.code === 'auth/invalid-email') {
+          errorMessage = 'Please enter a valid email address.';
+        } else if (firebaseError.code === 'auth/weak-password') {
+          errorMessage = 'Password is too weak. Please choose a stronger password.';
+        }
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -319,7 +334,7 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
                 disabled={loading || !registrationData.email || !registrationData.password || !registrationData.confirmPassword || registrationData.password !== registrationData.confirmPassword || registrationData.password.length < 6}
                 className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? 'Creating Account...' : 'Continue to Profile Setup'}
+                {loading ? 'Validating...' : 'Continue to Profile Setup'}
               </button>
             </div>
           </form>
@@ -449,7 +464,7 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
               disabled={loading || !registrationData.firstName || !registrationData.lastName || !registrationData.phoneNumber}
               className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Creating Profile...' : 'Complete Registration'}
+              {loading ? 'Creating Account...' : 'Create Account'}
             </button>
           </div>
         </form>

@@ -1139,3 +1139,153 @@ export const cleanupExpiredInvites = onRequest({
   }
 });
 
+// Remove team member function
+export const removeTeamMember = onCall({ maxInstances: 10 }, async (request) => {
+  try {
+    const { memberUid } = request.data;
+    
+    if (!request.auth) {
+      throw new Error('Authentication required');
+    }
+
+    const requesterUid = request.auth.uid;
+    
+    // Get the requester's user data to verify they're a PRO user
+    const requesterDoc = await db.collection('users').doc(requesterUid).get();
+    if (!requesterDoc.exists) {
+      throw new Error('Requester not found');
+    }
+
+    const requesterData = requesterDoc.data();
+    if (requesterData?.role !== 'PRO') {
+      throw new Error('Only PRO users can remove team members');
+    }
+
+    // Get the member to be removed
+    const memberDoc = await db.collection('users').doc(memberUid).get();
+    if (!memberDoc.exists) {
+      throw new Error('Team member not found');
+    }
+
+    const memberData = memberDoc.data();
+    
+    // Verify the member belongs to the PRO's team
+    if (memberData?.proId !== requesterUid) {
+      throw new Error('Member does not belong to your team');
+    }
+
+    // Prevent PRO from removing themselves
+    if (memberUid === requesterUid) {
+      throw new Error('Cannot remove yourself from the team');
+    }
+
+    // Update the member's status to inactive and remove team association
+    await db.collection('users').doc(memberUid).update({
+      status: 'inactive',
+      proId: null,
+      removedAt: new Date(),
+      removedBy: requesterUid,
+      removedFromTeam: requesterUid
+    });
+
+    // Log the removal for audit purposes
+    await db.collection('auditLogs').add({
+      action: 'remove_team_member',
+      requesterUid,
+      memberUid,
+      memberRole: memberData?.role,
+      memberEmail: memberData?.email,
+      timestamp: new Date(),
+      proId: requesterUid
+    });
+
+    logger.info(`Team member ${memberUid} removed by PRO user ${requesterUid}`);
+
+    return {
+      success: true,
+      message: `Successfully removed ${memberData?.displayName || 'team member'} from your team`
+    };
+
+  } catch (error) {
+    logger.error('Error removing team member:', error);
+    throw new Error(error instanceof Error ? error.message : 'Failed to remove team member');
+  }
+});
+
+// Clean up orphaned Firebase Auth users
+export const cleanupOrphanedUsers = onCall({ maxInstances: 10 }, async (request) => {
+  try {
+    const { email } = request.data;
+    
+    if (!request.auth) {
+      throw new Error('Authentication required');
+    }
+
+    const requesterUid = request.auth.uid;
+    
+    // Get the requester's user data to verify they're a PRO user (admin)
+    const requesterDoc = await db.collection('users').doc(requesterUid).get();
+    if (!requesterDoc.exists) {
+      throw new Error('Requester not found');
+    }
+
+    const requesterData = requesterDoc.data();
+    if (requesterData?.role !== 'PRO') {
+      throw new Error('Only PRO users can clean up orphaned accounts');
+    }
+
+    if (!email) {
+      throw new Error('Email is required');
+    }
+
+    // Check if user exists in Firestore
+    const usersRef = db.collection('users');
+    const q = usersRef.where('email', '==', email);
+    const querySnapshot = await q.get();
+    
+    if (!querySnapshot.empty) {
+      throw new Error('User exists in Firestore - no cleanup needed');
+    }
+
+    // Try to find the user in Firebase Auth by email
+    try {
+      const userRecord = await getAuth().getUserByEmail(email);
+      
+      // User exists in Auth but not in Firestore - this is an orphaned account
+      logger.info(`Found orphaned user in Auth: ${userRecord.uid} for email: ${email}`);
+      
+      // Delete the orphaned Firebase Auth user
+      await getAuth().deleteUser(userRecord.uid);
+      
+      // Log the cleanup for audit purposes
+      await db.collection('auditLogs').add({
+        action: 'cleanup_orphaned_user',
+        requesterUid,
+        orphanedUserUid: userRecord.uid,
+        orphanedUserEmail: email,
+        timestamp: new Date(),
+        proId: requesterUid
+      });
+
+      logger.info(`Successfully cleaned up orphaned user: ${userRecord.uid} for email: ${email}`);
+
+      return {
+        success: true,
+        message: `Successfully cleaned up orphaned account for ${email}. You can now register with this email.`,
+        orphanedUid: userRecord.uid
+      };
+
+    } catch (authError: any) {
+      if (authError.code === 'auth/user-not-found') {
+        throw new Error('No user found with this email in Firebase Auth');
+      } else {
+        throw new Error(`Error accessing Firebase Auth: ${authError.message}`);
+      }
+    }
+
+  } catch (error) {
+    logger.error('Error cleaning up orphaned user:', error);
+    throw new Error(error instanceof Error ? error.message : 'Failed to clean up orphaned user');
+  }
+});
+

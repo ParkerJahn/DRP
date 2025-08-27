@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import { getAthletePackages } from '../../services/packages';
 import { getEventsByAttendee } from '../../services/calendar';
-import type { Event, PackagePurchase } from '../../types';
+import { getProgramsByAthlete } from '../../services/programs';
+import type { Event, PackagePurchase, Program } from '../../types';
 import { RefreshIndicator } from '../RefreshIndicator';
 
 interface AthleteAnalyticsProps {
@@ -10,13 +12,7 @@ interface AthleteAnalyticsProps {
 
 interface WorkoutData {
   total: number;
-  categories: {
-    strength: number;
-    cardio: number;
-    flexibility: number;
-    sports: number;
-    recovery: number;
-  };
+  categories: Record<string, number>; // Dynamic categories from actual workout data
   weeklyProgress: Array<{
     week: string;
     workouts: number;
@@ -34,13 +30,7 @@ interface PackageData {
 export const AthleteAnalytics: React.FC<AthleteAnalyticsProps> = ({ userId }) => {
   const [workoutData, setWorkoutData] = useState<WorkoutData>({
     total: 0,
-    categories: {
-      strength: 0,
-      cardio: 0,
-      flexibility: 0,
-      sports: 0,
-      recovery: 0
-    },
+    categories: {},
     weeklyProgress: []
   });
   const [packageData, setPackageData] = useState<PackageData>({
@@ -56,16 +46,18 @@ export const AthleteAnalytics: React.FC<AthleteAnalyticsProps> = ({ userId }) =>
     try {
       setLoading(true);
       
-      // Load packages and events data
+      // Load packages, events, and programs data
       const packagesResult = await getAthletePackages(userId);
       const eventsResult = await getEventsByAttendee(userId);
+      const programsResult = await getProgramsByAthlete(userId);
 
       if (packagesResult.success && eventsResult.success) {
         const packages = packagesResult.purchases || [];
         const events = eventsResult.events || [];
+        const programs = programsResult.success ? programsResult.programs || [] : [];
         
-        // Process workout data
-        const workouts = processWorkoutData(events);
+        // Process workout data using actual programs data
+        const workouts = processWorkoutData(events, programs);
         setWorkoutData(workouts);
 
         // Process package data
@@ -84,18 +76,48 @@ export const AthleteAnalytics: React.FC<AthleteAnalyticsProps> = ({ userId }) =>
     loadAthleteAnalytics();
   }, [loadAthleteAnalytics]);
 
-  const processWorkoutData = (events: Array<Event & { id: string }>): WorkoutData => {
+  const processWorkoutData = (events: Array<Event & { id: string }>, programs: Program[]): WorkoutData => {
     const workouts = events.filter(event => event.type === 'session');
     const now = new Date();
     
-    // Process categories (simplified - in real app, this would come from workout data)
-    const categories = {
-      strength: Math.floor(workouts.length * 0.4), // 40% strength
-      cardio: Math.floor(workouts.length * 0.3),   // 30% cardio
-      flexibility: Math.floor(workouts.length * 0.15), // 15% flexibility
-      sports: Math.floor(workouts.length * 0.1),   // 10% sports
-      recovery: Math.floor(workouts.length * 0.05) // 5% recovery
-    };
+    // Extract real workout categories from SWEATsheet programs
+    const categories: Record<string, number> = {};
+    
+    // Process each program to extract muscle groups and exercise categories
+    programs.forEach(program => {
+      if (program.phases) {
+        program.phases.forEach(phase => {
+          if (phase.blocks) {
+            phase.blocks.forEach(block => {
+              // Count exercises by muscle group
+              if (block.muscleGroup) {
+                const muscleGroup = block.muscleGroup;
+                categories[muscleGroup] = (categories[muscleGroup] || 0) + block.exercises.length;
+              }
+              
+              // Also count by exercise category if available
+              if (block.exercises) {
+                block.exercises.forEach(exercise => {
+                  if (exercise.category) {
+                    const category = exercise.category;
+                    categories[category] = (categories[category] || 0) + 1;
+                  }
+                });
+              }
+            });
+          }
+        });
+      }
+    });
+    
+    // If no real categories found, fall back to mock data for demo purposes
+    if (Object.keys(categories).length === 0) {
+      categories['Strength Training'] = Math.floor(workouts.length * 0.4);
+      categories['Cardio'] = Math.floor(workouts.length * 0.3);
+      categories['Flexibility'] = Math.floor(workouts.length * 0.15);
+      categories['Sports'] = Math.floor(workouts.length * 0.1);
+      categories['Recovery'] = Math.floor(workouts.length * 0.05);
+    }
 
     // Generate weekly progress for last 8 weeks
     const weeklyProgress = [];
@@ -144,20 +166,41 @@ export const AthleteAnalytics: React.FC<AthleteAnalyticsProps> = ({ userId }) =>
     };
   };
 
-  const getCategoryPercentage = (category: keyof typeof workoutData.categories) => {
-    const total = workoutData.total;
-    return total > 0 ? Math.round((workoutData.categories[category] / total) * 100) : 0;
+  const getPieChartColors = (category: string) => {
+    // Define a comprehensive color palette for workout categories
+    const colorPalette = [
+      '#ef4444', // Red - Strength
+      '#3b82f6', // Blue - Cardio
+      '#10b981', // Green - Flexibility
+      '#8b5cf6', // Purple - Sports
+      '#f97316', // Orange - Recovery
+      '#06b6d4', // Cyan - Mobility
+      '#84cc16', // Lime - Agility
+      '#f59e0b', // Amber - Power
+      '#ec4899', // Pink - Endurance
+      '#6366f1', // Indigo - Balance
+      '#14b8a6', // Teal - Core
+      '#f43f5e', // Rose - Speed
+      '#a855f7', // Violet - Coordination
+      '#22c55e', // Emerald - Stability
+      '#eab308'  // Yellow - Warm-up
+    ];
+    
+    // Generate a consistent color for each category
+    let hash = 0;
+    for (let i = 0; i < category.length; i++) {
+      hash = category.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const index = Math.abs(hash) % colorPalette.length;
+    return colorPalette[index];
   };
 
-  const getCategoryColor = (category: string) => {
-    const colors = {
-      strength: 'from-red-500 to-red-600',
-      cardio: 'from-blue-500 to-blue-600',
-      flexibility: 'from-green-500 to-green-600',
-      sports: 'from-purple-500 to-purple-600',
-      recovery: 'from-orange-500 to-orange-600'
-    };
-    return colors[category as keyof typeof colors] || 'from-gray-500 to-gray-600';
+  const preparePieChartData = () => {
+    return Object.entries(workoutData.categories).map(([category, count]) => ({
+      name: category.charAt(0).toUpperCase() + category.slice(1),
+      value: count,
+      color: getPieChartColors(category)
+    }));
   };
 
   if (loading) {
@@ -260,23 +303,35 @@ export const AthleteAnalytics: React.FC<AthleteAnalyticsProps> = ({ userId }) =>
           {/* Category Breakdown */}
           <div className="bg-gray-50 dark:bg-neutral-700 p-4 rounded-lg">
             <h4 className="font-medium text-gray-900 dark:text-white mb-4">Workout Categories</h4>
-            <div className="space-y-3">
-              {Object.entries(workoutData.categories).map(([category, count]) => (
-                <div key={category} className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <div className={`w-3 h-3 rounded-full bg-gradient-to-r ${getCategoryColor(category)}`}></div>
-                    <span className="text-sm text-gray-600 dark:text-gray-400 capitalize">
-                      {category}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">{count}</span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      ({getCategoryPercentage(category as keyof typeof workoutData.categories)}%)
-                    </span>
-                  </div>
-                </div>
-              ))}
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={preparePieChartData()}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name} ${percent ? (percent * 100).toFixed(0) : 0}%`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {preparePieChartData().map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    formatter={(value, name) => [value, name]}
+                    contentStyle={{
+                      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                    }}
+                  />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
             </div>
           </div>
 

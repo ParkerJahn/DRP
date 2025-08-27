@@ -202,6 +202,14 @@ export interface Exercise {
   category?: string;
   exerciseName?: string;
   completed?: boolean;
+  // Per-set data structure for individual set tracking
+  setDetails?: Array<{
+    weight?: string;
+    reps?: number;
+    restSec?: number;
+    completed?: boolean;
+    notes?: string;
+  }>;
   // Per-set selections (render-only; optional for persistence)
   repsBySet?: Record<number, string>;
   weightBySet?: Record<number, string>;

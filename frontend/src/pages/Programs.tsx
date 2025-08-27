@@ -38,8 +38,22 @@ const Programs: React.FC = () => {
   const [exerciseCategories, setExerciseCategories] = useState<ExerciseCategory[]>([]);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
-  const [newCategoryId, setNewCategoryId] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'detail' | 'assign' | 'exercise-library' | 'create-assign'>('grid');
+
+  // Enhanced state for new features
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'date' | 'title' | 'status' | 'athlete'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [showCompleted, setShowCompleted] = useState(true);
+  const [autoSave, setAutoSave] = useState(true);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [showProgress, setShowProgress] = useState(false);
+
+  // Exercise library state
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
+  const [exerciseLibraryView, setExerciseLibraryView] = useState<'grid' | 'analytics'>('grid');
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
   // Athletes are loaded from Firestore
   const [selectedAthlete, setSelectedAthlete] = useState<string | null>(null);
@@ -228,7 +242,7 @@ const Programs: React.FC = () => {
     try {
       setIsBuildingProgram(true);
       
-      // Create the program with the specified number of phases
+      // Create the program with proper structure and athlete connection
       const newProgram = {
         proId: user.proId || user.uid,
         athleteUid: selectedAthlete,
@@ -236,6 +250,10 @@ const Programs: React.FC = () => {
         status: 'draft' as ProgramStatus,
         phases: createMockPhases(),
         createdBy: user.uid,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        sharedWithAthlete: false,
+        lastSharedAt: null
       };
       
       const result = await createProgram(newProgram);
@@ -249,7 +267,7 @@ const Programs: React.FC = () => {
         setIsBuildingProgram(false);
         
         // Show success message
-        alert('Program created successfully!');
+        alert(`Program "${newProgram.title}" created successfully for ${athletes.find(a => a.uid === selectedAthlete)?.firstName} ${athletes.find(a => a.uid === selectedAthlete)?.lastName}!`);
       } else {
         console.error('Error creating program:', result.error);
         alert('Failed to create program. Please try again.');
@@ -314,6 +332,107 @@ const Programs: React.FC = () => {
       loadTemplates();
     }
   }, [user]);
+
+  // Enhanced filtering and sorting functions
+  const getFilteredAndSortedPrograms = () => {
+    let filtered = [...programs];
+
+    // Search filtering
+    if (searchQuery.trim()) {
+      filtered = filtered.filter(program => 
+        program.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        program.status.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        athletes.find(a => a.uid === program.athleteUid)?.firstName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        athletes.find(a => a.uid === program.athleteUid)?.lastName?.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    // Status filtering
+    if (filter !== 'all') {
+      filtered = filtered.filter(program => program.status === filter);
+    }
+
+    // Show/hide completed
+    if (!showCompleted) {
+      filtered = filtered.filter(program => program.status !== 'archived');
+    }
+
+    // Sorting
+    filtered.sort((a, b) => {
+      let aValue: string | number | Date, bValue: string | number | Date;
+      
+      switch (sortBy) {
+        case 'date':
+          aValue = a.createdAt?.toDate?.() || new Date(0);
+          bValue = b.createdAt?.toDate?.() || new Date(0);
+          break;
+        case 'title':
+          aValue = a.title.toLowerCase();
+          bValue = b.title.toLowerCase();
+          break;
+        case 'status':
+          aValue = a.status.toLowerCase();
+          bValue = b.status.toLowerCase();
+          break;
+        case 'athlete': {
+          const aAthlete = athletes.find(ath => ath.uid === a.athleteUid);
+          const bAthlete = athletes.find(ath => ath.uid === b.athleteUid);
+          aValue = `${aAthlete?.firstName || ''} ${aAthlete?.lastName || ''}`.toLowerCase();
+          bValue = `${bAthlete?.firstName || ''} ${bAthlete?.lastName || ''}`.toLowerCase();
+          break;
+        }
+        default:
+          aValue = a.createdAt?.toDate?.() || new Date(0);
+          bValue = b.createdAt?.toDate?.() || new Date(0);
+      }
+
+      if (sortOrder === 'asc') {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+
+    return filtered;
+  };
+
+  // Auto-save functionality
+  const autoSaveProgram = async (programId: string, updates: Partial<Program>) => {
+    if (!autoSave || !user) return;
+    
+    try {
+      setIsSaving(true);
+      const result = await updateProgram(programId, updates);
+      if (result.success) {
+        setLastSaved(new Date());
+        // Update local state
+        setPrograms(prev => prev.map(p => p.id === programId ? { ...p, ...updates } : p));
+      }
+    } catch (error) {
+      console.error('Auto-save failed:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Progress tracking
+  const getProgramProgress = (program: Program) => {
+    if (!program.phases) return 0;
+    
+    let totalExercises = 0;
+    let completedExercises = 0;
+    
+    program.phases.forEach(phase => {
+      phase.blocks?.forEach(block => {
+        block.exercises?.forEach(exercise => {
+          totalExercises++;
+          if (exercise.completed) completedExercises++;
+        });
+      });
+    });
+    
+    return totalExercises > 0 ? Math.round((completedExercises / totalExercises) * 100) : 0;
+  };
 
   const handleSaveCurrentAsTemplate = async () => {
     if (!user || !selectedProgram) return;
@@ -421,7 +540,7 @@ const Programs: React.FC = () => {
   };
 
   const handleAddCategory = async () => {
-    if (newCategoryName.trim() && newCategoryId.trim()) {
+    if (newCategoryName.trim()) {
       try {
         const capitalizedCategoryName = capitalizeWords(newCategoryName.trim());
         const result = await createExerciseCategory({
@@ -435,7 +554,6 @@ const Programs: React.FC = () => {
             setExerciseCategories(prev => [...prev, result.category]);
           }
           setNewCategoryName('');
-          setNewCategoryId('');
           setIsAddingCategory(false);
         } else {
           console.error('Error creating category:', result.error);
@@ -473,18 +591,44 @@ const Programs: React.FC = () => {
     }
   };
 
-  const handleDeleteExercise = async (categoryId: string, exerciseName: string) => {
+  const handleDeleteExercise = async (blockIndex: number, exerciseIndex: number) => {
+    if (!selectedProgram) return;
+    
+    const confirmed = window.confirm('Are you sure you want to delete this exercise? This cannot be undone.');
+    if (!confirmed) return;
+    
     try {
-      const result = await deleteExerciseFromCategory(categoryId, exerciseName);
-
+      const updatedProgram = { ...selectedProgram };
+      const currentPhaseData = updatedProgram.phases[currentPhase - 1];
+      const block = currentPhaseData.blocks[blockIndex];
+      
+      // Remove exercise from the block
+      block.exercises.splice(exerciseIndex, 1);
+      
+      // Clean the program data before saving
+      const cleanProgram = cleanProgramData(updatedProgram);
+      
+      // Save to Firestore
+      const result = await updateProgram(selectedProgram.id || '', {
+        phases: cleanProgram.phases
+      });
+      
       if (result.success) {
-        setExerciseCategories(prev => 
-          prev.map(cat => 
-            cat.id === categoryId 
-              ? { ...cat, exercises: cat.exercises.filter((ex: string) => ex !== exerciseName) }
-              : cat
-          )
-        );
+        // Update local state
+        setSelectedProgram(cleanProgram);
+        setPrograms(prev => prev.map(p => 
+          p.id === selectedProgram.id ? cleanProgram : p
+        ));
+        
+        // Remove any related row selections
+        const rowKey = `${blockIndex}-${exerciseIndex}`;
+        setRowSelections(prev => {
+          const newSelections = { ...prev };
+          delete newSelections[rowKey];
+          return newSelections;
+        });
+        
+        alert('Exercise deleted successfully!');
       } else {
         console.error('Error deleting exercise:', result.error);
         alert('Failed to delete exercise. Please try again.');
@@ -558,6 +702,34 @@ const Programs: React.FC = () => {
     }
   };
 
+  // Validation function to prevent undefined values
+  const validateExerciseData = (exercise: any) => {
+    const validExercise: any = {};
+    Object.keys(exercise).forEach(key => {
+      if (exercise[key] !== undefined && exercise[key] !== null && exercise[key] !== '') {
+        validExercise[key] = exercise[key];
+      }
+    });
+    return validExercise;
+  };
+
+  // Helper function to clean program data before saving
+  const cleanProgramData = (program: Program) => {
+    const cleanPhases = program.phases.map(phase => ({
+      ...phase,
+      blocks: phase.blocks.map(block => ({
+        ...block,
+        exercises: block.exercises.map(ex => validateExerciseData(ex))
+      }))
+    })) as [Phase, Phase, Phase, Phase]; // Type assertion to maintain the 4-phase structure
+    
+    return {
+      ...program,
+      phases: cleanPhases
+    };
+  };
+
+  // Enhanced saveExerciseSelections function
   const saveExerciseSelections = async (blockIndex: number, exerciseIndex: number) => {
     if (!selectedProgram) return;
     
@@ -571,24 +743,26 @@ const Programs: React.FC = () => {
       const updatedProgram = { ...selectedProgram };
       const exercise = updatedProgram.phases[currentPhase - 1].blocks[blockIndex].exercises[exerciseIndex];
       
-      // Update exercise with selections
-      (exercise as any).category = selections.category;
-      (exercise as any).exerciseName = selections.exercise;
-      (exercise as any).sets = selections.sets;
-      (exercise as any).reps = selections.reps;
-      (exercise as any).weight = selections.weight;
+      // Update exercise with selections, filtering out undefined values
+      if (selections.category) exercise.category = selections.category;
+      if (selections.exercise) exercise.name = selections.exercise;
+      if (selections.sets) exercise.sets = parseInt(selections.sets) || 0;
+      if (selections.reps) exercise.reps = parseInt(selections.reps) || 0;
       
-      // Update the program in Firestore
+      // Clean the program data before saving
+      const cleanProgram = cleanProgramData(updatedProgram);
+      
+      // Update the program in Firestore with cleaned data
       const result = await updateProgram(selectedProgram.id || '', {
-        phases: updatedProgram.phases
+        phases: cleanProgram.phases
       });
       
       if (result.success) {
-        // Update local state
-        setSelectedProgram(updatedProgram);
+        // Update local state with cleaned data
+        setSelectedProgram(cleanProgram);
         // Update programs list
         setPrograms(prev => prev.map(p => 
-          p.athleteUid === selectedProgram.athleteUid ? updatedProgram : p
+          p.id === selectedProgram.id ? cleanProgram : p
         ));
       } else {
         console.error('Error updating exercise selections:', result.error);
@@ -627,140 +801,472 @@ const Programs: React.FC = () => {
     }
   };
 
-  const renderExerciseLibrary = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-semibold dark:text-white">Exercise Library</h3>
-        <div className="flex space-x-2">
-          <button
-            onClick={() => setViewMode('grid')}
-            className="px-3 py-1 bg-gray-600 text-white rounded hover:bg-gray-700 text-sm"
-          >
-            Back to Programs
-          </button>
-          <button
-            onClick={() => setIsAddingCategory(true)}
-            className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
-          >
-            New Category
-          </button>
-          <button
-            onClick={createSampleCategories}
-            className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
-          >
-            Create Sample Data
-          </button>
-        </div>
-      </div>
-
-      {/* Add New Category Form */}
-      {isAddingCategory && (
-        <div className="bg-white dark:bg-gray-800 dark:text-white rounded-lg shadow-md p-6">
-          <h3 className="text-lg font-semibold mb-4 text-green-600 dark:text-green-400">Create New Exercise Category</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Category Name
-              </label>
-              <input
-                type="text"
-                placeholder="Category name (auto-capitalized)"
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
-              {newCategoryName.trim() && (
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Will be saved as: <span className="font-medium">{capitalizeWords(newCategoryName.trim())}</span>
-                </div>
-              )}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Category ID (optional)
-              </label>
-              <input
-                type="text"
-                placeholder="Category ID (lowercase)"
-                value={newCategoryId}
-                onChange={(e) => setNewCategoryId(e.target.value.toLowerCase())}
-                className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
-            </div>
-          </div>
-          <div className="mt-4">
-            <button
-              onClick={handleAddCategory}
-              disabled={!newCategoryName.trim()}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-            >
-              Create Category
-            </button>
-          </div>
-        </div>
-      )}
+  const renderExerciseLibrary = () => {
+    // Filter exercises based on search and category
+    const getFilteredExercises = () => {
+      let filtered = exerciseCategories;
       
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {exerciseCategories.map((category) => (
-          <div key={category.id} className="bg-white dark:bg-gray-800 dark:text-white rounded-lg shadow-md p-6">
-            <div className="flex justify-between items-start mb-4">
-              <h3 className="text-lg font-semibold text-blue-600 dark:text-blue-400">{category.name}</h3>
+      if (searchQuery.trim()) {
+        filtered = filtered.filter(category => 
+          category.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          category.exercises.some(exercise => 
+            exercise.toLowerCase().includes(searchQuery.toLowerCase())
+          )
+        );
+      }
+      
+      if (selectedCategoryFilter !== 'all') {
+        filtered = filtered.filter(category => category.id === selectedCategoryFilter);
+      }
+      
+      return filtered;
+    };
+
+    const filteredCategories = getFilteredExercises();
+    const totalExercises = exerciseCategories.reduce((sum, cat) => sum + cat.exercises.length, 0);
+    const totalCategories = exerciseCategories.length;
+
+    return (
+      <div className="space-y-6">
+        {/* Enhanced Header */}
+        <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
+            <div className="flex items-center space-x-4">
+              {/* Back to Programs Button */}
               <button
-                onClick={() => handleDeleteCategory(category.id)}
-                className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-sm p-1"
-                title="Delete Category"
+                onClick={() => setViewMode('grid')}
+                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 font-medium transition-colors flex items-center space-x-2"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
+                <span>←</span>
+                <span>Back to Programs</span>
+              </button>
+              
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white font-ethnocentric">
+                  🏋️ Exercise Library
+                </h1>
+                <p className="text-gray-600 dark:text-gray-400 mt-2">
+                  Manage your exercise categories and build a comprehensive training database
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
+              <button
+                onClick={() => setExerciseLibraryView('grid')}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  exerciseLibraryView === 'grid' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                Grid View
+              </button>
+              <button
+                onClick={() => setExerciseLibraryView('analytics')}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  exerciseLibraryView === 'analytics' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                Analytics
               </button>
             </div>
-            <div className="space-y-2">
-              {category.exercises.map((exercise, index) => (
-                <div key={index} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded">
-                  <span className="text-gray-900 dark:text-white">{exercise}</span>
-                  <button
-                    onClick={() => handleDeleteExercise(category.id, exercise)}
-                    className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-sm"
-                    title="Delete Exercise"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-              <div className="flex space-x-2">
+          </div>
+
+          {/* Quick Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{totalCategories}</div>
+              <div className="text-sm text-blue-700 dark:text-blue-300">Categories</div>
+            </div>
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+              <div className="text-2xl font-bold text-green-600 dark:text-green-400">{totalExercises}</div>
+              <div className="text-sm text-green-700 dark:text-green-300">Total Exercises</div>
+            </div>
+            <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
+              <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                {Math.round(totalExercises / Math.max(totalCategories, 1))}
+              </div>
+              <div className="text-sm text-purple-700 dark:text-purple-300">Avg per Category</div>
+            </div>
+            <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4">
+              <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                {exerciseCategories.filter(cat => cat.exercises.length > 5).length}
+              </div>
+              <div className="text-sm text-orange-700 dark:text-orange-300">Large Categories</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Enhanced Search and Filter Bar */}
+        {exerciseLibraryView !== 'analytics' && (
+          <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Search */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Search Exercises
+                </label>
                 <input
                   type="text"
-                  placeholder="New exercise name (auto-capitalized)"
-                  className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                      handleAddExercise(category.id, e.currentTarget.value);
-                      e.currentTarget.value = '';
-                    }
-                  }}
+                  placeholder="Search by exercise name or category..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
-                <button
-                  onClick={(e) => {
-                    const input = e.currentTarget.previousElementSibling as HTMLInputElement;
-                    if (input && input.value.trim()) {
-                      handleAddExercise(category.id, input.value);
-                      input.value = '';
-                    }
-                  }}
-                  className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+              </div>
+
+              {/* Category Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Filter by Category
+                </label>
+                <select
+                  value={selectedCategoryFilter}
+                  onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  +
+                  <option value="all">All Categories</option>
+                  {exerciseCategories.map(category => (
+                    <option key={category.id} value={category.id}>
+                      {category.name} ({category.exercises.length})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-end space-x-2">
+                <button
+                  onClick={() => setIsAddingCategory(true)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors"
+                >
+                  + New Category
+                </button>
+                <button
+                  onClick={() => createSampleCategories()}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors"
+                >
+                  Sample Data
                 </button>
               </div>
             </div>
           </div>
-        ))}
+        )}
+
+        {/* Add New Category Form */}
+        {isAddingCategory && exerciseLibraryView !== 'analytics' && (
+          <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-green-600 dark:text-green-400">
+                Create New Exercise Category
+              </h3>
+              <button
+                onClick={() => setIsAddingCategory(false)}
+                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Category Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="Category name (auto-capitalized)"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                {newCategoryName.trim() && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Will be saved as: <span className="font-medium">{capitalizeWords(newCategoryName.trim())}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="mt-4 flex space-x-3">
+              <button
+                onClick={handleAddCategory}
+                disabled={!newCategoryName.trim()}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
+              >
+                Create Category
+              </button>
+              <button
+                onClick={() => setIsAddingCategory(false)}
+                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 font-medium"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Exercise Categories Display */}
+        <div className="space-y-4">
+          {/* Instructions */}
+          {exerciseLibraryView !== 'analytics' && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <div className="flex items-start space-x-3">
+                <div className="text-blue-600 dark:text-blue-400 mt-0.5">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div className="text-sm text-blue-700 dark:text-blue-300">
+                  <p className="font-medium mb-1">💡 Pro Tip:</p>
+                  <p>Click the <span className="font-mono">↓</span> arrow button or the <span className="font-mono text-blue-600">+X more exercises</span> text on any category card to expand and view all exercises in a smooth dropdown. All exercises are displayed at once for easy viewing. Use Grid View for management and Analytics View for insights.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Grid View */}
+          {exerciseLibraryView === 'grid' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredCategories.map((category) => (
+                <div key={category.id} className="bg-white dark:bg-neutral-800 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+                  {/* Category Header */}
+                  <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <h3 className="text-lg font-semibold text-blue-600 dark:text-blue-400 mb-1">
+                          {category.name}
+                        </h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {category.exercises.length} exercises
+                        </p>
+                      </div>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => {
+                            const newExpanded = new Set(expandedCategories);
+                            if (newExpanded.has(category.id)) {
+                              newExpanded.delete(category.id);
+                            } else {
+                              newExpanded.add(category.id);
+                            }
+                            setExpandedCategories(newExpanded);
+                          }}
+                          className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 p-1"
+                          title={expandedCategories.has(category.id) ? "Collapse exercises" : "View all exercises"}
+                        >
+                          <svg 
+                            className={`w-5 h-5 transition-transform duration-200 ${
+                              expandedCategories.has(category.id) ? 'rotate-180' : ''
+                            }`} 
+                            fill="none" 
+                            stroke="currentColor" 
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCategory(category.id)}
+                          className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 p-1"
+                          title="Delete Category"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Quick Exercise Preview */}
+                    <div className="space-y-2">
+                      {category.exercises.slice(0, 3).map((exercise, index) => (
+                        <div key={index} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded">
+                          <span className="text-sm text-gray-900 dark:text-white truncate">{exercise}</span>
+                          <button
+                            onClick={() => handleDeleteExercise(category.id, exercise)}
+                            className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-xs p-1"
+                            title="Delete Exercise"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                      {category.exercises.length > 3 && (
+                        <button
+                          onClick={() => {
+                            const newExpanded = new Set(expandedCategories);
+                            if (newExpanded.has(category.id)) {
+                              newExpanded.delete(category.id);
+                            } else {
+                              newExpanded.add(category.id);
+                            }
+                            setExpandedCategories(newExpanded);
+                          }}
+                          className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-center py-1 w-full hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors cursor-pointer"
+                          title="Click to view all exercises"
+                        >
+                          +{category.exercises.length - 3} more exercises
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Expanded Exercise List - Dropdown Style */}
+                  {expandedCategories.has(category.id) && (
+                    <div className="overflow-hidden transition-all duration-300 ease-in-out transform origin-top">
+                      <div className="p-4 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 animate-in slide-in-from-top-2 duration-300">
+                        <div className="mb-3">
+                          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            All Exercises ({category.exercises.length})
+                          </h4>
+                          <div className="w-full h-px bg-blue-200 dark:bg-blue-800 mb-3"></div>
+                        </div>
+                        <div className="space-y-2">
+                          {category.exercises.map((exercise, index) => (
+                            <div key={index} className="flex items-center justify-between p-2 bg-white dark:bg-gray-600 rounded">
+                              <span className="text-sm text-gray-900 dark:text-white">{exercise}</span>
+                              <button
+                                onClick={() => handleDeleteExercise(category.id, exercise)}
+                                className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-xs p-1"
+                                title="Delete Exercise"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Add New Exercise */}
+                  <div className="p-4 bg-gray-50 dark:bg-gray-700">
+                    <div className="flex space-x-2">
+                      <input
+                        type="text"
+                        placeholder="New exercise name"
+                        className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-600 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                            handleAddExercise(category.id, e.currentTarget.value);
+                            e.currentTarget.value = '';
+                          }
+                        }}
+                      />
+                      <button
+                        onClick={(e) => {
+                          const input = e.currentTarget.previousElementSibling as HTMLInputElement;
+                          if (input && input.value.trim()) {
+                            handleAddExercise(category.id, input.value);
+                            input.value = '';
+                          }
+                        }}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+
+
+          {/* Analytics View */}
+          {exerciseLibraryView === 'analytics' && (
+            <div className="space-y-6">
+              {/* Analytics Header */}
+              <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Exercise Library Analytics</h3>
+                <p className="text-gray-600 dark:text-gray-400">View insights and statistics about your exercise categories and distribution</p>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Category Distribution */}
+                <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Category Distribution</h3>
+                  <div className="space-y-3">
+                    {exerciseCategories.map((category) => {
+                      const percentage = Math.round((category.exercises.length / Math.max(totalExercises, 1)) * 100);
+                      return (
+                        <div key={category.id} className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-700 dark:text-gray-300">{category.name}</span>
+                            <span className="text-gray-500 dark:text-gray-400">{category.exercises.length} ({percentage}%)</span>
+                          </div>
+                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                            <div
+                              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${percentage}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Exercise Growth */}
+                <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Exercise Growth</h3>
+                  <div className="space-y-4">
+                    <div className="text-center">
+                      <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">{totalExercises}</div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">Total Exercises</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-3xl font-bold text-green-600 dark:text-green-400">{totalCategories}</div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">Categories</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-3xl font-bold text-purple-600 dark:text-purple-400">
+                        {Math.round(totalExercises / Math.max(totalCategories, 1))}
+                      </div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">Avg per Category</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Empty State */}
+        {filteredCategories.length === 0 && (
+          <div className="text-center py-12">
+            <div className="text-6xl mb-4">🏋️</div>
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+              {searchQuery || selectedCategoryFilter !== 'all' ? 'No exercises found' : 'No exercise categories yet'}
+            </h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
+              {searchQuery || selectedCategoryFilter !== 'all' 
+                ? 'Try adjusting your search or filters'
+                : 'Create your first exercise category to get started'
+              }
+            </p>
+            {!searchQuery && selectedCategoryFilter === 'all' && (
+              <button
+                onClick={() => setIsAddingCategory(true)}
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors"
+              >
+                Create Your First Category
+              </button>
+            )}
+          </div>
+        )}
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderSweatSheetDetail = () => {
     if (!selectedProgram) return null;
@@ -769,434 +1275,714 @@ const Programs: React.FC = () => {
     
     return (
       <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <h2 className="text-2xl font-bold">{selectedProgram.title}</h2>
-            <p className="text-gray-600 dark:text-gray-400">
-              Phase {currentPhase} of 4 - {currentPhaseData.name}
-            </p>
+        {/* Enhanced Header with Program Info */}
+        <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900 dark:text-white font-ethnocentric">
+                {selectedProgram.title}
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 text-lg">
+                Phase {currentPhase} of 4 - {currentPhaseData.name}
+              </p>
+              <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500 dark:text-gray-400">
+                <span>Status: <span className="font-medium text-blue-600 dark:text-blue-400">{selectedProgram.status}</span></span>
+                <span>Athlete: <span className="font-medium text-green-600 dark:text-green-400">
+                  {athletes.find(a => a.uid === selectedProgram.athleteUid)?.firstName} {athletes.find(a => a.uid === selectedProgram.athleteUid)?.lastName}
+                </span></span>
+              </div>
+            </div>
+            
+            <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
+              <button
+                onClick={() => setViewMode('grid')}
+                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                ← Back to Programs
+              </button>
+              {canCreateProgram && (
+                <>
+                  <button 
+                    onClick={() => handleCompletePhase(currentPhase)}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    ✅ Complete Phase {currentPhase}
+                  </button>
+                  <button
+                    onClick={() => handleSaveProgram()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    💾 Save Program
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex space-x-3">
-            <button
-              onClick={() => setViewMode('grid')}
-              className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
-            >
-              Back to Programs
-            </button>
-            {canCreateProgram && (
-              <>
-                <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-                  Complete Phase
-                </button>
+        </div>
+
+        {/* Enhanced Phase Navigation with Progress */}
+        <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Phase Progress</h3>
+          <div className="grid grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map((phase) => {
+              const phaseData = selectedProgram.phases[phase - 1];
+              const isCompleted = (phaseData as any).status === 'completed';
+              const isCurrent = currentPhase === phase;
+              const completionRate = getPhaseCompletionRate(phaseData);
+              
+              return (
                 <button
-                  type="button"
-                  onClick={handleSaveCurrentAsTemplate}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                  key={phase}
+                  onClick={() => setCurrentPhase(phase)}
+                  className={`p-4 rounded-lg border-2 transition-all duration-200 text-center ${
+                    isCurrent
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                      : isCompleted
+                      ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                      : 'border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-600'
+                  }`}
                 >
-                  Save as Template
+                  <div className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
+                    Phase {phase}
+                  </div>
+                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                    {phaseData.name}
+                  </div>
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mb-2">
+                    <div
+                      className={`h-2 rounded-full transition-all duration-300 ${
+                        isCompleted ? 'bg-green-500' : 'bg-blue-500'
+                      }`}
+                      style={{ width: `${completionRate}%` }}
+                    ></div>
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    {completionRate}% Complete
+                  </div>
+                  {isCompleted && (
+                    <div className="text-green-600 dark:text-green-400 text-lg mt-1">✅</div>
+                  )}
                 </button>
-              </>
-            )}
+              );
+            })}
           </div>
         </div>
 
-        {/* Phase Navigation */}
-        <div className="flex space-x-2">
-          {[1, 2, 3, 4].map((phase) => (
-            <button
-              key={phase}
-              onClick={() => setCurrentPhase(phase)}
-              className={`px-4 py-2 rounded-lg ${
-                currentPhase === phase
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-              }`}
-            >
-              Phase {phase}
-            </button>
-          ))}
-        </div>
-
-        {/* SweatSheet Blocks Grid */}
-        <div className="grid grid-cols-1 gap-2">
-          {currentPhaseData.blocks.map((block, blockIndex) => (
-            <div key={blockIndex} className="bg-white dark:bg-gray-800 dark:text-white rounded-lg shadow-md p-2 w-fit">
-              <div className="mb-3">
-                <input
-                  type="date"
-                  className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded text-sm"
-                  defaultValue={new Date().toISOString().split('T')[0]}
-                />
-                                 <h4 className="font-semibold mt-2 text-blue-600 dark:text-blue-400">{block.muscleGroup}</h4>
-              </div>
-              
-              <div className="space-y-2">
-                {block.exercises.map((exercise, exerciseIndex) => (
-                  <div key={exerciseIndex} className="grid grid-cols-6 gap-0.5 text-xs min-w-[480px]">
-                    {/* Exercise Category Dropdown */}
-                    <select 
-                      value={rowSelections[`${blockIndex}-${exerciseIndex}`]?.category || ''}
-                      className="border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white w-18"
-                      onChange={(e) => {
-                        const rowKey = `${blockIndex}-${exerciseIndex}`;
-                        setRowSelections(prev => ({
-                          ...prev,
-                          [rowKey]: {
-                            category: e.target.value,
-                            exercise: '', // Reset exercise when category changes
-                            sets: prev[rowKey]?.sets || '',
-                            reps: prev[rowKey]?.reps || {},
-                            weight: prev[rowKey]?.weight || {}
-                          }
-                        }));
-                        // Save to Firestore after a short delay
-                        setTimeout(() => saveExerciseSelections(blockIndex, exerciseIndex), 500);
-                      }}
-                    >
-                      <option value="">Category...</option>
-                      {exerciseCategories.map((cat) => (
-                        <option key={cat.id} value={cat.id}>
-                          {cat.name}
-                        </option>
-                      ))}
-                    </select>
-                    
-                    {/* Exercise Type Dropdown - Filtered by selected category */}
-                    <select 
-                      value={rowSelections[`${blockIndex}-${exerciseIndex}`]?.exercise || ''}
-                      disabled={!rowSelections[`${blockIndex}-${exerciseIndex}`]?.category}
-                      className="border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-600 disabled:cursor-not-allowed w-18"
-                      onChange={(e) => {
-                        const rowKey = `${blockIndex}-${exerciseIndex}`;
-                        setRowSelections(prev => ({
-                          ...prev,
-                          [rowKey]: {
-                            ...prev[rowKey],
-                            exercise: e.target.value,
-                            sets: prev[rowKey]?.sets || '',
-                            reps: prev[rowKey]?.reps || {},
-                            weight: prev[rowKey]?.weight || {}
-                          }
-                        }));
-                      }}
-                    >
-                      <option value="">Exercise...</option>
-                      {rowSelections[`${blockIndex}-${exerciseIndex}`]?.category && exerciseCategories
-                        .find(cat => cat.id === rowSelections[`${blockIndex}-${exerciseIndex}`]?.category)
-                        ?.exercises.map((exerciseName) => (
-                          <option key={exerciseName} value={exerciseName}>
-                            {exerciseName}
-                          </option>
-                        ))}
-                    </select>
-                    
-                    {/* Sets */}
-                    <select 
-                      value={rowSelections[`${blockIndex}-${exerciseIndex}`]?.sets || ''}
-                      className="border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white w-14"
-                      onChange={(e) => {
-                        const rowKey = `${blockIndex}-${exerciseIndex}`;
-                        setRowSelections(prev => ({
-                          ...prev,
-                          [rowKey]: {
-                            ...prev[rowKey],
-                            sets: e.target.value,
-                            reps: '', // Reset reps when sets change
-                            weight: '' // Reset weight when sets change
-                          }
-                        }));
-                      }}
-                    >
-                      <option value="">Sets...</option>
-                      <option value="1">1</option>
-                      <option value="2">2</option>
-                      <option value="3">3</option>
-                      <option value="4">4</option>
-                      <option value="5">5</option>
-                      <option value="6">6</option>
-                    </select>
-                    
-                    {/* All Reps Dropdowns - Stacked in one column */}
-                    <div className="flex flex-col w-18">
-                      {Array.from({ length: parseInt(rowSelections[`${blockIndex}-${exerciseIndex}`]?.sets) || 0 }, (_, setIndex) => (
-                        <div key={`reps-${setIndex}`} className="flex items-center">
-                          <select 
-                            value={rowSelections[`${blockIndex}-${exerciseIndex}`]?.reps?.[setIndex] || ''}
-                            disabled={!rowSelections[`${blockIndex}-${exerciseIndex}`]?.sets}
-                            className="p-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-xs w-full"
-                            onChange={(e) => {
-                              const rowKey = `${blockIndex}-${exerciseIndex}`;
-                              setRowSelections(prev => ({
-                                ...prev,
-                                [rowKey]: {
-                                  ...prev[rowKey],
-                                  reps: {
-                                    ...prev[rowKey]?.reps,
-                                    [setIndex]: e.target.value
-                                  }
-                                }
-                              }));
-                            }}
-                          >
-                            <option value="">Reps...</option>
-                            <option value="1">1</option>
-                            <option value="3">3</option>
-                            <option value="5">5</option>
-                            <option value="8">8</option>
-                            <option value="10">10</option>
-                            <option value="12">12</option>
-                            <option value="15">15</option>
-                            <option value="20">20</option>
-                            <option value="25">25</option>
-                            <option value="30">30</option>
-                          </select>
-                        </div>
-                      ))}
-                    </div>
-                    
-                    {/* All Weight Dropdowns - Stacked in one column */}
-                    <div className="flex flex-col space-y-0.5 w-18">
-                      {Array.from({ length: parseInt(rowSelections[`${blockIndex}-${exerciseIndex}`]?.sets) || 0 }, (_, setIndex) => (
-                        <div key={`weight-${setIndex}`} className="flex items-center">
-                          <select 
-                            value={rowSelections[`${blockIndex}-${exerciseIndex}`]?.weight?.[setIndex] || ''}
-                            disabled={!rowSelections[`${blockIndex}-${exerciseIndex}`]?.reps?.[setIndex]}
-                            className="p-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-xs w-full"
-                            onChange={(e) => {
-                              const rowKey = `${blockIndex}-${exerciseIndex}`;
-                              setRowSelections(prev => ({
-                                ...prev,
-                                [rowKey]: {
-                                  ...prev[rowKey],
-                                  weight: {
-                                    ...prev[rowKey]?.weight,
-                                    [setIndex]: e.target.value
-                                  }
-                                }
-                              }));
-                            }}
-                          >
-                            <option value="">Weight...</option>
-                            <option value="Max">Max</option>
-                            <option value="95%">95%</option>
-                            <option value="90%">90%</option>
-                            <option value="85%">85%</option>
-                            <option value="80%">80%</option>
-                            <option value="75%">75%</option>
-                            <option value="70%">70%</option>
-                            <option value="65%">65%</option>
-                            <option value="60%">60%</option>
-                            <option value="55%">55%</option>
-                            <option value="50%">50%</option>
-                            <option value="45%">45%</option>
-                            <option value="40%">40%</option>
-                            <option value="35%">35%</option>
-                            <option value="30%">30%</option>
-                            <option value="25%">25%</option>
-                            <option value="20%">20%</option>
-                          </select>
-                        </div>
-                      ))}
-                    </div>
-                    
-                    {/* Completion Checkbox - Moved to rightmost column */}
-                    <div className="flex items-center justify-center w-4">
-                      <input
-                        type="checkbox"
-                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                        defaultChecked={(exercise as any).completed}
-                        onChange={(e) => handleWorkoutCompletion(blockIndex, exerciseIndex, e.target.checked)}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              
-              <button className="w-full mt-3 px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-xs">
-                + Add Exercise Row
+        {/* Enhanced Workout Builder */}
+        <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
+              🏋️ Phase {currentPhase} Workout Builder
+            </h3>
+            <div className="flex items-center space-x-3">
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                Auto-save: <span className="font-medium text-green-600 dark:text-green-400">ON</span>
+              </span>
+              <button
+                onClick={() => handleAddBlockToPhase(currentPhase)}
+                className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+              >
+                + Add Block
               </button>
             </div>
-          ))}
+          </div>
+
+          {/* Workout Blocks Grid */}
+          <div className="space-y-6">
+            {currentPhaseData.blocks.map((block, blockIndex) => (
+              <div key={blockIndex} className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
+                {/* Block Header */}
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-3">
+                      <div className="flex items-center space-x-2 min-w-0">
+                        <span className="text-xl font-semibold text-gray-900 dark:text-white truncate max-w-xs">
+                          {block.muscleGroup}
+                        </span>
+                        <button
+                          onClick={() => handleOpenBlockNameEdit(blockIndex, block.muscleGroup)}
+                          className="px-3 py-2 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200 border border-transparent hover:border-blue-200 dark:hover:border-blue-800 flex-shrink-0"
+                          title="Edit block name"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400 mt-1 px-2">
+                      {block.exercises.length} exercise{block.exercises.length !== 1 ? 's' : ''}
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => handleDeleteBlock(blockIndex)}
+                      className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700 transition-colors"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Exercise Rows */}
+                <div className="space-y-3">
+                  {block.exercises.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                      <div className="text-4xl mb-2">🏋️</div>
+                      <p className="text-sm">No exercises in this block yet</p>
+                      <p className="text-xs">Add your first exercise below</p>
+                    </div>
+                  ) : (
+                    block.exercises.map((exercise, exerciseIndex) => {
+                      const selectedSets = parseInt(rowSelections[`${blockIndex}-${exerciseIndex}`]?.sets as string) || 0;
+                      
+                      return (
+                        <div key={exerciseIndex} className="space-y-3">
+                          {/* Exercise Header Row */}
+                          <div className="grid grid-cols-7 gap-3 items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                            {/* Exercise Selection */}
+                            <div className="col-span-2">
+                              <select 
+                                value={rowSelections[`${blockIndex}-${exerciseIndex}`]?.category || ''}
+                                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white text-sm"
+                                onChange={(e) => handleExerciseSelectionChange(blockIndex, exerciseIndex, 'category', e.target.value)}
+                              >
+                                <option value="">Select Category...</option>
+                                {exerciseCategories.map((cat) => (
+                                  <option key={cat.id} value={cat.id}>
+                                    {cat.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            
+                            <div className="col-span-2">
+                              <select 
+                                value={rowSelections[`${blockIndex}-${exerciseIndex}`]?.exercise || ''}
+                                disabled={!rowSelections[`${blockIndex}-${exerciseIndex}`]?.category}
+                                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-sm"
+                                onChange={(e) => handleExerciseSelectionChange(blockIndex, exerciseIndex, 'exercise', e.target.value)}
+                              >
+                                <option value="">Select Exercise...</option>
+                                {rowSelections[`${blockIndex}-${exerciseIndex}`]?.category && exerciseCategories
+                                  .find(cat => cat.id === rowSelections[`${blockIndex}-${exerciseIndex}`]?.category)
+                                  ?.exercises.map((exerciseName) => (
+                                    <option key={exerciseName} value={exerciseName}>
+                                      {exerciseName}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                            
+                            {/* Sets */}
+                            <div>
+                              <select 
+                                value={rowSelections[`${blockIndex}-${exerciseIndex}`]?.sets || ''}
+                                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white text-sm"
+                                onChange={(e) => handleExerciseSelectionChange(blockIndex, exerciseIndex, 'sets', e.target.value)}
+                              >
+                                <option value="">Sets</option>
+                                {[1,2,3,4,5,6].map(num => (
+                                  <option key={num} value={num}>{num}</option>
+                                ))}
+                              </select>
+                            </div>
+                            
+                            {/* Completion */}
+                            <div className="flex items-center justify-center">
+                              <input
+                                type="checkbox"
+                                className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                checked={exercise.completed || false}
+                                onChange={(e) => handleWorkoutCompletion(blockIndex, exerciseIndex, e.target.checked)}
+                              />
+                            </div>
+                            
+                            {/* Delete Exercise Button */}
+                            <div className="flex items-center justify-center">
+                              <button
+                                onClick={() => handleDeleteExercise(blockIndex, exerciseIndex)}
+                                className="p-2 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/20 rounded transition-colors"
+                                title="Delete Exercise"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                          
+                          {/* Set Rows - Only show when sets are selected */}
+                          {selectedSets > 0 && (
+                            <div className="space-y-2">
+                              <div className="text-xs font-medium text-gray-600 dark:text-gray-400 px-3">
+                                Set Details ({selectedSets} sets)
+                              </div>
+                              {Array.from({ length: selectedSets }, (_, setIndex) => (
+                                <div key={setIndex} className="grid grid-cols-8 gap-3 items-center p-2 bg-gray-50 dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+                                  {/* Set Number */}
+                                  <div className="col-span-1 text-center">
+                                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                      Set {setIndex + 1}
+                                    </span>
+                                  </div>
+                                  
+                                  {/* Weight */}
+                                  <div className="col-span-2">
+                                    <input
+                                      type="text"
+                                      placeholder="Weight (lbs)"
+                                      value={(exercise.setDetails as any)?.[setIndex]?.weight || ''}
+                                      onChange={(e) => handleSetWeightChange(blockIndex, exerciseIndex, setIndex, e.target.value)}
+                                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white text-sm"
+                                    />
+                                  </div>
+                                  
+                                  {/* Reps - Now individual per set */}
+                                  <div className="col-span-1">
+                                    <select
+                                      value={(exercise.setDetails as any)?.[setIndex]?.reps || ''}
+                                      onChange={(e) => handleSetRepsChange(blockIndex, exerciseIndex, setIndex, e.target.value)}
+                                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white text-sm"
+                                    >
+                                      <option value="">Reps</option>
+                                      {[5,8,10,12,15,20,25].map(num => (
+                                        <option key={num} value={num}>{num}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  
+                                  {/* Rest Time */}
+                                  <div className="col-span-2">
+                                    <input
+                                      type="text"
+                                      placeholder="Rest (sec)"
+                                      value={(exercise.setDetails as any)?.[setIndex]?.restSec || ''}
+                                      onChange={(e) => handleSetRestChange(blockIndex, exerciseIndex, setIndex, e.target.value)}
+                                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white text-sm"
+                                    />
+                                  </div>
+                                  
+                                  {/* Set Completion */}
+                                  <div className="col-span-1 flex items-center justify-center">
+                                    <input
+                                      type="checkbox"
+                                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                      checked={(exercise.setDetails as any)?.[setIndex]?.completed || false}
+                                      onChange={(e) => handleSetCompletionChange(blockIndex, exerciseIndex, setIndex, e.target.checked)}
+                                    />
+                                  </div>
+                                  
+                                  {/* Notes */}
+                                  <div className="col-span-1">
+                                    <input
+                                      type="text"
+                                      placeholder="Notes"
+                                      value={(exercise.setDetails as any)?.[setIndex]?.notes || ''}
+                                      onChange={(e) => handleSetNotesChange(blockIndex, exerciseIndex, setIndex, e.target.value)}
+                                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white text-sm"
+                                    />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                  
+                  {/* Add Exercise Button - Moved to bottom */}
+                  <div className="flex justify-center pt-2">
+                    <button
+                      onClick={() => handleAddExerciseToBlock(blockIndex)}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium flex items-center space-x-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                      <span>Add Exercise</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
+
+        {/* Program Actions */}
+        <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Program Actions</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <button
+              onClick={() => handleAutoShareProgram()}
+              className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors text-center"
+            >
+              <div className="text-2xl mb-2">🚀</div>
+              <div className="font-medium text-green-800 dark:text-green-200">Auto-Share</div>
+              <div className="text-sm text-green-600 dark:text-green-300">Share when ready</div>
+            </button>
+            
+            <button
+              onClick={() => handleShareWithAthlete()}
+              className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors text-center"
+            >
+              <div className="text-2xl mb-2">📤</div>
+              <div className="font-medium text-blue-800 dark:text-blue-200">Share Now</div>
+              <div className="text-sm text-blue-600 dark:text-blue-300">Send to athlete</div>
+            </button>
+            
+            <button
+              onClick={() => handleSaveProgram()}
+              className="p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors text-center"
+            >
+              <div className="text-2xl mb-2">💾</div>
+              <div className="font-medium text-purple-800 dark:text-purple-200">Save Program</div>
+              <div className="text-sm text-purple-600 dark:text-purple-300">Save changes</div>
+            </button>
+            
+            <button
+              onClick={() => handleExportProgram()}
+              className="p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors text-center"
+            >
+              <div className="text-2xl mb-2">📁</div>
+              <div className="font-medium text-orange-800 dark:text-orange-200">Export</div>
+              <div className="text-sm text-orange-600 dark:text-orange-300">Download JSON</div>
+            </button>
+          </div>
+        </div>
+        
+        {/* Edit Block Name Modal */}
+        {renderEditBlockNameModal()}
       </div>
     );
   };
 
-  const renderProgramsGrid = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold font-ethnocentric">Your SweatSheets</h2>
-        <div className="flex space-x-3">
-          {canViewExerciseLibrary && (
+  const renderProgramsGrid = () => {
+    const filteredPrograms = getFilteredAndSortedPrograms();
+    
+    return (
+      <div className="space-y-6">
+        {/* Enhanced Header with Search and Controls */}
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white font-ethnocentric">
+              💪 SWEATsheet Programs
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-2">
+              Manage and track athlete training programs
+            </p>
+          </div>
+          
+          <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
             <button
-              onClick={handleExerciseLibrary}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+              onClick={() => setViewMode('create-assign')}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors"
+            >
+              + Create New Program
+            </button>
+            <button
+              onClick={() => setViewMode('exercise-library')}
+              className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium transition-colors"
             >
               Exercise Library
             </button>
-          )}
-          {canCreateProgram && (
-            <div className="relative">
-              <select
-                onChange={(e) => {
-                  if (e.target.value) {
-                    setSelectedAthlete(e.target.value);
-                    setViewMode('create-assign');
-                  }
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer appearance-none pr-8"
-                defaultValue=""
-              >
-                <option value="" disabled>Select Athlete...</option>
-                {athletes.map((athlete) => (
-                  <option key={athlete.uid} value={athlete.uid}>
-                    {athlete.firstName} {athlete.lastName}
-                  </option>
-                ))}
-              </select>
-              <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
-      </div>
 
-      {/* Filter Tabs */}
-      <div className="flex space-x-2 border-b border-gray-200 dark:border-gray-700">
-        {['all', 'current', 'completed', 'draft'].map((status) => (
-          <button
-            key={status}
-            onClick={() => setFilter(status as ProgramStatus | 'all')}
-            className={`px-4 py-2 rounded-t-lg ${
-              filter === status
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-            }`}
-          >
-            {status.charAt(0).toUpperCase() + status.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      {/* Programs Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {programs
-          .filter(program => filter === 'all' || program.status === filter)
-          .map((program) => (
-            <div
-              key={program.athleteUid}
-              onClick={() => handleProgramSelect(program)}
-              className={`bg-white dark:bg-gray-800 dark:text-white rounded-lg shadow-md p-6 cursor-pointer hover:shadow-lg transition-shadow ${
-                selectedProgram?.athleteUid === program.athleteUid ? 'ring-2 ring-blue-500' : ''
-              }`}
-            >
-              <div className="flex justify-between items-start mb-4">
-                <h3 className="text-lg font-semibold">{program.title}</h3>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  program.status === 'current' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
-                  program.status === 'archived' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
-                  'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                }`}>
-                  {program.status}
-                </span>
-              </div>
-              
-              <div className="space-y-3">
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Phases:</span>
-                  <span className="text-sm font-medium">{program.phases.length}/4</span>
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Assigned to:</span>
-                  <span className="text-sm font-medium">
-                    {athletes.find(a => a.uid === program.athleteUid)?.firstName || 'Unknown'}
-                  </span>
-                </div>
-                
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Progress</span>
-                    <span>{getCompletionPercentage(program)}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                    <div
-                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${getCompletionPercentage(program)}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div className="pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={(e) => handleDeleteProgram(program, e)}
-                    className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
+        {/* Enhanced Search and Filter Bar */}
+        <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Search */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Search Programs
+              </label>
+              <input
+                type="text"
+                placeholder="Search by title, athlete, or status..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
             </div>
-          ))}
+
+            {/* Status Filter */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Status Filter
+              </label>
+              <select
+                value={filter}
+                onChange={(e) => setFilter(e.target.value as ProgramStatus | 'all')}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="all">All Statuses</option>
+                <option value="current">Current</option>
+                <option value="draft">Draft</option>
+                <option value="archived">Archived</option>
+              </select>
+            </div>
+
+            {/* Sort By */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Sort By
+              </label>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as 'date' | 'title' | 'status' | 'athlete')}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="date">Date Created</option>
+                <option value="title">Program Title</option>
+                <option value="status">Status</option>
+                <option value="athlete">Athlete Name</option>
+              </select>
+            </div>
+
+            {/* Sort Order */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Sort Order
+              </label>
+              <select
+                value={sortOrder}
+                onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="desc">Newest First</option>
+                <option value="asc">Oldest First</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Additional Controls */}
+          <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
+            <div className="flex items-center space-x-4">
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={showCompleted}
+                  onChange={(e) => setShowCompleted(e.target.checked)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Show Completed</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={autoSave}
+                  onChange={(e) => setAutoSave(e.target.checked)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Auto-save</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={showProgress}
+                  onChange={(e) => setShowProgress(e.target.checked)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Show Progress</span>
+              </label>
+            </div>
+
+            {isSaving && (
+              <div className="flex items-center text-sm text-blue-600 dark:text-blue-400">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+                Saving...
+              </div>
+            )}
+            {lastSaved && (
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                Last saved: {lastSaved.toLocaleTimeString()}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Programs Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredPrograms.map((program) => {
+            const athlete = athletes.find(a => a.uid === program.athleteUid);
+            const progress = getProgramProgress(program);
+            
+            return (
+              <div
+                key={program.id}
+                className="bg-white dark:bg-neutral-800 rounded-lg shadow-lg hover:shadow-xl transition-shadow cursor-pointer"
+                onClick={() => {
+                  setSelectedProgram(program);
+                  setViewMode('detail');
+                }}
+              >
+                {/* Program Header */}
+                <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+                  <div className="flex items-start justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white line-clamp-2">
+                      {program.title}
+                    </h3>
+                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                      program.status === 'current' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                      program.status === 'draft' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                      'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
+                    }`}>
+                      {program.status.charAt(0).toUpperCase() + program.status.slice(1)}
+                    </span>
+                  </div>
+                  
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                    Athlete: {athlete ? `${athlete.firstName} ${athlete.lastName}` : 'Unknown'}
+                  </p>
+
+                  {/* Progress Bar */}
+                  {showProgress && (
+                    <div className="mb-3">
+                      <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 mb-1">
+                        <span>Progress</span>
+                        <span>{progress}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                        <div
+                          className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${progress}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Quick Stats */}
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="text-center p-2 bg-gray-50 dark:bg-neutral-700 rounded">
+                      <div className="font-semibold text-gray-900 dark:text-white">
+                        {program.phases?.length || 0}
+                      </div>
+                      <div className="text-gray-500 dark:text-gray-400">Phases</div>
+                    </div>
+                    <div className="text-center p-2 bg-gray-50 dark:bg-neutral-700 rounded">
+                      <div className="font-semibold text-gray-900 dark:text-white">
+                        {program.phases?.reduce((total, phase) => 
+                          total + (phase.blocks?.reduce((blockTotal, block) => 
+                            blockTotal + (block.exercises?.length || 0), 0) || 0), 0) || 0}
+                      </div>
+                      <div className="text-gray-500 dark:text-gray-400">Exercises</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Program Footer */}
+                <div className="p-4 bg-gray-50 dark:bg-neutral-700 rounded-b-lg">
+                  <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+                    <span>
+                      Created: {program.createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown'}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedProgram(program);
+                        setViewMode('detail');
+                      }}
+                      className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                    >
+                      View Details
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Empty State */}
+        {filteredPrograms.length === 0 && (
+          <div className="text-center py-12">
+            <div className="text-6xl mb-4">🏋️</div>
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+              {searchQuery || filter !== 'all' ? 'No programs found' : 'No programs yet'}
+            </h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
+              {searchQuery || filter !== 'all' 
+                ? 'Try adjusting your search or filters'
+                : 'Create your first training program to get started'
+              }
+            </p>
+            {!searchQuery && filter === 'all' && (
+              <button
+                onClick={() => setViewMode('create-assign')}
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors"
+              >
+                Create Your First Program
+              </button>
+            )}
+          </div>
+        )}
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderCreateAssignProgram = () => {
     const selectedAthleteData = athletes.find(a => a.uid === selectedAthlete);
     
     return (
       <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <h2 className="text-2xl font-bold dark:text-white">Create & Assign SweatSheet</h2>
-            <p className="text-gray-600 dark:text-gray-400">
-              {selectedAthleteData ? `For ${selectedAthleteData.firstName} ${selectedAthleteData.lastName}` : ''}
-            </p>
-          </div>
-          <button
-            onClick={() => {
-              setViewMode('grid');
-              setSelectedAthlete(null);
-            }}
-            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
-          >
-            Back to Programs
-          </button>
+        {/* Simplified Header */}
+        <div className="text-center">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white font-ethnocentric mb-2">
+            🏋️ Create New Program
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400 text-lg">
+            {selectedAthleteData ? `Building a program for ${selectedAthleteData.firstName} ${selectedAthleteData.lastName}` : 'Select an athlete to get started'}
+          </p>
         </div>
-        
-        <div className="bg-white dark:bg-gray-800 dark:text-white rounded-lg shadow-md p-6">
-          <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-            <h4 className="font-semibold text-blue-800 dark:text-blue-300 mb-2">How it works:</h4>
-            <ul className="text-sm text-blue-700 dark:text-blue-400 space-y-1">
-              <li>• <strong>Create New:</strong> Build a custom program from scratch using exercises from your library</li>
-              <li>• <strong>Assign Existing:</strong> Use pre-built program templates (coming soon)</li>
-              <li>• <strong>Program Builder:</strong> Customize phases, blocks, and exercises</li>
-            </ul>
+
+        {/* Athlete Selection - Most Important First */}
+        <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">1. Select Athlete</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {athletes.map((athlete) => (
+              <button
+                key={athlete.uid}
+                onClick={() => setSelectedAthlete(athlete.uid)}
+                className={`p-4 rounded-lg border-2 transition-all duration-200 text-left ${
+                  selectedAthlete === athlete.uid
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                    : 'border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-600'
+                }`}
+              >
+                <div className="font-medium text-gray-900 dark:text-white">
+                  {athlete.firstName} {athlete.lastName}
+                </div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  {athlete.email}
+                </div>
+              </button>
+            ))}
           </div>
-          
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Create New SweatSheet */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-blue-600 dark:text-blue-400">Create New SweatSheet</h3>
-              
+        </div>
+
+        {/* Program Details - Simplified Form */}
+        {selectedAthlete && (
+          <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">2. Program Details</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Program Title */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Program Title
+                  Program Title *
                 </label>
                 <input
                   type="text"
                   placeholder="e.g., Strength Training Program"
                   value={newProgramTitle}
                   onChange={(e) => setNewProgramTitle(e.target.value)}
-                  className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
               
+              {/* Program Type */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Program Type
@@ -1204,220 +1990,677 @@ const Programs: React.FC = () => {
                 <select 
                   value={newProgramType}
                   onChange={(e) => setNewProgramType(e.target.value)}
-                  className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="Strength Training">Strength Training</option>
-                  <option value="Power Development">Power Development</option>
-                  <option value="Endurance">Endurance</option>
-                  <option value="Recovery">Recovery</option>
-                  <option value="Custom">Custom</option>
+                  <option value="Strength Training">💪 Strength Training</option>
+                  <option value="Power Development">⚡ Power Development</option>
+                  <option value="Endurance">🏃 Endurance</option>
+                  <option value="Recovery">🔄 Recovery</option>
+                  <option value="Custom">🎯 Custom</option>
                 </select>
               </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Number of Phases
-                </label>
-                <select 
-                  value={newProgramPhases}
-                  onChange={(e) => setNewProgramPhases(parseInt(e.target.value))}
-                  className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                >
-                  <option value={4}>4 Phases (Recommended)</option>
-                  <option value={3}>3 Phases</option>
-                  <option value={2}>2 Phases</option>
-                  <option value={1}>1 Phase</option>
-                </select>
-              </div>
-              
-              <button 
-                onClick={handleCreateNewProgram}
-                disabled={!newProgramTitle.trim() || !selectedAthlete}
-                className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-              >
-                {isBuildingProgram ? 'Building Program...' : 'Create SweatSheet'}
-              </button>
-              
-              {/* Validation feedback */}
-              {!selectedAthlete && (
-                <p className="text-sm text-red-600 dark:text-red-400 mt-2">
-                  ⚠️ Please select an athlete first
-                </p>
-              )}
-              {!newProgramTitle.trim() && (
-                <p className="text-sm text-red-600 dark:text-red-400 mt-2">
-                  ⚠️ Please enter a program title
-                </p>
-              )}
             </div>
-            
-            {/* Assign Existing SweatSheet */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-green-600 dark:text-green-400">Assign Existing SweatSheet</h3>
-              
-              <div className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                <p>Choose from pre-built program templates and customize them for your athlete. Templates include:</p>
-                <ul className="list-disc list-inside mt-2 space-y-1">
-                  <li><strong>Strength Training:</strong> Build maximum strength with compound movements</li>
-                  <li><strong>Power Development:</strong> Develop explosive power and athletic performance</li>
-                  <li><strong>Endurance:</strong> Improve muscular and cardiovascular endurance</li>
-                  <li><strong>Recovery:</strong> Maintain fitness while promoting recovery</li>
-                </ul>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Select Template
-                </label>
-                <select 
-                  value={selectedTemplate}
-                  onChange={(e) => setSelectedTemplate(e.target.value)}
-                  className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                >
-                  <option value="">Choose a template...</option>
-                  {templates.map(t => (
-                    <option key={t.id} value={t.id}>{t.title}</option>
-                  ))}
-                </select>
-              </div>
-              
-              {/* Template Preview */}
-              {selectedTemplate && (
-                <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 border border-green-200 dark:border-green-800">
-                  <h5 className="font-semibold text-green-800 dark:text-green-300 mb-2">Template Preview</h5>
-                  <div className="text-sm text-green-700 dark:text-green-400 space-y-2">
-                    <div><strong>Program:</strong> {templates.find(t => t.id === selectedTemplate)?.title || 'N/A'}</div>
-                    <div><strong>Description:</strong> {createProgramFromTemplate(templates.find(t => t.id === selectedTemplate)?.title || 'Strength Training Program').description}</div>
-                    <div><strong>Focus:</strong> {createProgramFromTemplate(templates.find(t => t.id === selectedTemplate)?.title || 'Strength Training Program').focus}</div>
-                    <div><strong>Difficulty:</strong> {createProgramFromTemplate(templates.find(t => t.id === selectedTemplate)?.title || 'Strength Training Program').difficulty}</div>
-                    <div><strong>Structure:</strong> 4 Phases × 8 Blocks × 6 Exercises</div>
-                    <div><strong>Total Workouts:</strong> 192 exercises</div>
-                    <div><strong>Estimated Duration:</strong> 8-12 weeks</div>
+
+            {/* Quick Program Preview */}
+            {newProgramTitle && (
+              <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                <h4 className="font-medium text-blue-800 dark:text-blue-300 mb-3">Program Preview</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">4</div>
+                    <div className="text-blue-700 dark:text-blue-300">Phases</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">32</div>
+                    <div className="text-blue-700 dark:text-blue-300">Workout Blocks</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">192</div>
+                    <div className="text-blue-700 dark:text-blue-300">Total Exercises</div>
                   </div>
                 </div>
-              )}
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Customize for Athlete
-                </label>
-                <textarea
-                  placeholder="Add any specific notes or modifications for this athlete..."
-                  rows={3}
-                  value={customizationNotes}
-                  onChange={(e) => setCustomizationNotes(e.target.value)}
-                  className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                />
-              </div>
-              
-              <button 
-                onClick={handleAssignTemplate}
-                disabled={!selectedTemplate || !selectedAthlete}
-                className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-              >
-                {isAssigningProgram ? 'Assigning Program...' : 'Assign SweatSheet'}
-              </button>
-              
-              {/* Validation feedback */}
-              {!selectedAthlete && (
-                <p className="text-sm text-red-600 dark:text-red-400 mt-2">
-                  ⚠️ Please select an athlete first
-                </p>
-              )}
-              {!selectedTemplate && (
-                <p className="text-sm text-red-600 dark:text-red-400 mt-2">
-                  ⚠️ Please select a program template
-                </p>
-              )}
-            </div>
-          </div>
-          
-          {/* Program Builder Section */}
-          <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-600">
-            <h4 className="text-lg font-semibold mb-4 text-gray-700 dark:text-gray-300">Program Builder</h4>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Build your workout program using exercises from the Exercise Library
-            </p>
-            
-            {/* Program Summary */}
-            {newProgramTitle && (
-              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 mb-4 border border-blue-200 dark:border-blue-800">
-                <h5 className="font-semibold text-blue-800 dark:text-blue-300 mb-2">Program Summary</h5>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <span className="font-medium text-blue-700 dark:text-blue-400">Title:</span> {newProgramTitle}
-                  </div>
-                  <div>
-                    <span className="font-medium text-blue-700 dark:text-blue-400">Type:</span> {newProgramType}
-                  </div>
-                  <div>
-                    <span className="font-medium text-blue-700 dark:text-blue-400">Phases:</span> {newProgramPhases}
-                  </div>
+                <div className="mt-3 text-center text-xs text-blue-600 dark:text-blue-400">
+                  Estimated Duration: 8-12 weeks
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Create Button - Prominent Action */}
+        {selectedAthlete && (
+          <div className="text-center">
+            <button 
+              onClick={handleCreateNewProgram}
+              disabled={!newProgramTitle.trim() || isBuildingProgram}
+              className="px-8 py-4 bg-blue-600 text-white text-lg font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl"
+            >
+              {isBuildingProgram ? (
+                <div className="flex items-center justify-center space-x-2">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  <span>Creating Program...</span>
+                </div>
+              ) : (
+                '🚀 Create Program Now'
+              )}
+            </button>
             
-            {/* Phase 1 Preview */}
-            <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-              <h5 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">Phase 1 Preview</h5>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {Array.from({ length: 8 }, (_, blockIndex) => (
-                  <div key={blockIndex} className="bg-white dark:bg-gray-600 rounded-lg p-3 border border-gray-200 dark:border-gray-500">
-                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Block {blockIndex + 1}
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {exerciseCategories.length > 0 ? (
-                        <div className="space-y-1">
-                          <div>Category: {exerciseCategories[0]?.name || 'Select...'}</div>
-                          <div>Exercise: {exerciseCategories[0]?.exercises[0] || 'Select...'}</div>
-                          <div>Sets: 3 | Reps: 10</div>
-                        </div>
-                      ) : (
-                        <div className="text-gray-400">No exercises available</div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            {/* Validation Messages */}
+            {!newProgramTitle.trim() && (
+              <p className="text-sm text-red-600 dark:text-red-400 mt-3">
+                ⚠️ Please enter a program title to continue
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Quick Actions */}
+        <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Actions</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <button 
+              onClick={() => setViewMode('exercise-library')}
+              className="p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors text-center"
+            >
+              <div className="text-2xl mb-2">📚</div>
+              <div className="font-medium text-purple-800 dark:text-purple-200">Exercise Library</div>
+              <div className="text-sm text-purple-600 dark:text-purple-300">Manage exercises</div>
+            </button>
             
-            <div className="mt-4 flex space-x-3">
-              <button 
-                onClick={() => setViewMode('exercise-library')}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm"
-              >
-                Manage Exercise Library
-              </button>
-              <button 
-                onClick={() => setViewMode('detail')}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"
-              >
-                View Program Details
-              </button>
-              <button 
-                onClick={() => setViewMode('grid')}
-                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm"
-              >
-                Back to Programs
-              </button>
-            </div>
+            <button 
+              onClick={() => setViewMode('grid')}
+              className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors text-center"
+            >
+              <div className="text-2xl mb-2">📋</div>
+              <div className="font-medium text-green-800 dark:text-green-200">View Programs</div>
+              <div className="text-sm text-green-600 dark:text-green-300">See all programs</div>
+            </button>
+            
+            <button 
+              onClick={() => {
+                setViewMode('grid');
+                setSelectedAthlete(null);
+              }}
+              className="p-4 bg-gray-50 dark:bg-gray-900/20 border border-gray-200 dark:border-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900/30 transition-colors text-center"
+            >
+              <div className="text-2xl mb-2">←</div>
+              <div className="font-medium text-gray-800 dark:text-gray-200">Back to Programs</div>
+              <div className="text-sm text-gray-600 dark:text-gray-300">Return to main view</div>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Enhanced workout building and phasing functions
+  const getPhaseCompletionRate = (phase: any) => {
+    if (!phase || !phase.blocks) return 0;
+    
+    let totalExercises = 0;
+    let completedExercises = 0;
+    
+    phase.blocks.forEach((block: any) => {
+      if (block.exercises) {
+        totalExercises += block.exercises.length;
+        block.exercises.forEach((exercise: any) => {
+          if (exercise.completed) completedExercises++;
+        });
+      }
+    });
+    
+    return totalExercises > 0 ? Math.round((completedExercises / totalExercises) * 100) : 0;
+  };
+
+  const handleExerciseSelectionChange = (blockIndex: number, exerciseIndex: number, field: string, value: any) => {
+    if (!selectedProgram) return;
+    
+    const rowKey = `${blockIndex}-${exerciseIndex}`;
+    setRowSelections(prev => ({
+      ...prev,
+      [rowKey]: {
+        ...prev[rowKey],
+        [field]: value
+      }
+    }));
+    
+    // Auto-save after a short delay
+    setTimeout(() => saveExerciseSelections(blockIndex, exerciseIndex), 500);
+  };
+
+  const handleAddBlockToPhase = (phaseNumber: number) => {
+    if (!selectedProgram) return;
+    
+    const updatedProgram = { ...selectedProgram };
+    const phase = updatedProgram.phases[phaseNumber - 1];
+    
+    // Add new block to the phase
+    phase.blocks.push({
+      muscleGroup: 'New Muscle Group',
+      exercises: [],
+      notes: ''
+    });
+    
+    // Update program
+    setSelectedProgram(updatedProgram);
+    
+    // Save to Firestore
+    handleSaveProgram();
+  };
+
+  const handleAddExerciseToBlock = (blockIndex: number) => {
+    if (!selectedProgram) return;
+    
+    const updatedProgram = { ...selectedProgram };
+    const currentPhaseData = updatedProgram.phases[currentPhase - 1];
+    const block = currentPhaseData.blocks[blockIndex];
+    
+    // Add new exercise to the block
+    block.exercises.push({
+      name: 'New Exercise',
+      sets: 3,
+      reps: 10, // Default value to satisfy interface requirement
+      load: '',
+      tempo: '',
+      restSec: 60,
+      category: '',
+      completed: false
+    });
+    
+    // Update program
+    setSelectedProgram(updatedProgram);
+    
+    // Save to Firestore
+    handleSaveProgram();
+  };
+
+  const handleDeleteBlock = (blockIndex: number) => {
+    if (!selectedProgram) return;
+    
+    const block = selectedProgram.phases[currentPhase - 1].blocks[blockIndex];
+    const exerciseCount = block.exercises.length;
+    
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${block.muscleGroup}" block?\n\n` +
+      `This will remove ${exerciseCount} exercise${exerciseCount !== 1 ? 's' : ''} and cannot be undone.`
+    );
+    
+    if (!confirmed) return;
+    
+    try {
+      const updatedProgram = { ...selectedProgram };
+      const currentPhaseData = updatedProgram.phases[currentPhase - 1];
+      
+      // Remove block
+      currentPhaseData.blocks.splice(blockIndex, 1);
+      
+      // Clean the program data before saving
+      const cleanProgram = cleanProgramData(updatedProgram);
+      
+      // Update program
+      setSelectedProgram(cleanProgram);
+      
+      // Save to Firestore
+      handleSaveProgram();
+      
+      alert(`Block "${block.muscleGroup}" deleted successfully!`);
+    } catch (error) {
+      console.error('Error deleting block:', error);
+      alert('Failed to delete block. Please try again.');
+    }
+  };
+
+  const handleCompletePhase = async (phaseNumber: number) => {
+    if (!selectedProgram) return;
+    
+    try {
+      const updatedProgram = { ...selectedProgram };
+      const phase = updatedProgram.phases[phaseNumber - 1];
+      
+      // Mark phase as completed (add custom property)
+      (phase as any).status = 'completed';
+      (phase as any).completedAt = new Date();
+      
+      // Update program
+      setSelectedProgram(updatedProgram);
+      
+      // Save to Firestore
+      const result = await updateProgram(selectedProgram.id || '', {
+        phases: updatedProgram.phases
+      });
+      
+      if (result.success) {
+        // Update programs list
+        setPrograms(prev => prev.map(p => 
+          p.id === selectedProgram.id ? updatedProgram : p
+        ));
+        
+        // Show success message
+        alert(`Phase ${phaseNumber} marked as completed!`);
+        
+        // Move to next phase if available
+        if (phaseNumber < 4) {
+          setCurrentPhase(phaseNumber + 1);
+        }
+      } else {
+        console.error('Error completing phase:', result.error);
+        alert('Failed to complete phase. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error completing phase:', error);
+      alert('Failed to complete phase. Please try again.');
+    }
+  };
+
+  const handleSaveProgram = async () => {
+    if (!selectedProgram) return;
+    
+    try {
+      // Clean the program data before saving
+      const cleanProgram = cleanProgramData(selectedProgram);
+      
+      const result = await updateProgram(selectedProgram.id || '', {
+        phases: cleanProgram.phases,
+        updatedAt: new Date()
+      });
+      
+      if (result.success) {
+        // Update local state with cleaned data
+        setSelectedProgram(cleanProgram);
+        
+        // Update programs list
+        setPrograms(prev => prev.map(p => 
+          p.id === selectedProgram.id ? cleanProgram : p
+        ));
+        
+        // Show success message
+        alert('Program saved successfully!');
+      } else {
+        console.error('Error saving program:', result.error);
+        alert('Failed to save program. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error saving program:', error);
+      alert('Failed to save program. Please try again.');
+    }
+  };
+
+  const handleShareWithAthlete = async () => {
+    if (!selectedProgram) return;
+    
+    try {
+      // Update program status to shared
+      const updatedProgram = { ...selectedProgram, status: 'shared' as any };
+      
+      const result = await updateProgram(selectedProgram.id || '', {
+        status: 'shared',
+        sharedAt: new Date(),
+        sharedWithAthlete: true,
+        lastSharedAt: new Date()
+      });
+      
+      if (result.success) {
+        // Update local state
+        setSelectedProgram(updatedProgram);
+        setPrograms(prev => prev.map(p => 
+          p.id === selectedProgram.id ? updatedProgram : p
+        ));
+        
+        // Send notification to athlete (this would integrate with your notification system)
+        await notifyAthleteOfNewProgram(selectedProgram.athleteUid, selectedProgram.title);
+        
+        // Show success message
+        alert(`Program shared successfully with ${athletes.find(a => a.uid === selectedProgram.athleteUid)?.firstName} ${athletes.find(a => a.uid === selectedProgram.athleteUid)?.lastName}! The athlete has been notified.`);
+      } else {
+        console.error('Error sharing program:', result.error);
+        alert('Failed to share program. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error sharing program:', error);
+      alert('Failed to share program. Please try again.');
+    }
+  };
+
+  // Notify athlete of new program (placeholder for notification system)
+  const notifyAthleteOfNewProgram = async (athleteUid: string, programTitle: string) => {
+    try {
+      // This would integrate with your notification system
+      // For now, we'll just log it
+      console.log(`Notifying athlete ${athleteUid} about new program: ${programTitle}`);
+      
+      // You could add a notification to Firestore here
+      // await addNotification({
+      //   userId: athleteUid,
+      //   type: 'new_program',
+      //   title: 'New Training Program Available',
+      //   message: `Your coach has created a new program: ${programTitle}`,
+      //   data: { programId: selectedProgram?.id },
+      //   read: false,
+      //   createdAt: new Date()
+      // });
+      
+    } catch (error) {
+      console.error('Error notifying athlete:', error);
+    }
+  };
+
+  // Auto-share program when it's ready
+  const handleAutoShareProgram = async () => {
+    if (!selectedProgram) return;
+    
+    try {
+      // Check if program is complete enough to share
+      const totalExercises = selectedProgram.phases.reduce((total, phase) => 
+        total + phase.blocks.reduce((blockTotal, block) => 
+          blockTotal + block.exercises.length, 0
+        ), 0
+      );
+      
+      if (totalExercises < 5) {
+        alert('Please add at least 5 exercises before sharing the program with your athlete.');
+        return;
+      }
+      
+      // Share the program
+      await handleShareWithAthlete();
+      
+    } catch (error) {
+      console.error('Error auto-sharing program:', error);
+      alert('Failed to auto-share program. Please try again.');
+    }
+  };
+
+  const handleExportProgram = () => {
+    if (!selectedProgram) return;
+    
+    // Create program summary for export
+    const programData = {
+      title: selectedProgram.title,
+      athlete: athletes.find(a => a.uid === selectedProgram.athleteUid)?.firstName + ' ' + athletes.find(a => a.uid === selectedProgram.athleteUid)?.lastName,
+      status: selectedProgram.status,
+      phases: selectedProgram.phases.map((phase, index) => ({
+        phaseNumber: index + 1,
+        name: phase.name,
+        status: (phase as any).status || 'in-progress',
+        blocks: phase.blocks.map((block, blockIndex) => ({
+          blockNumber: blockIndex + 1,
+          muscleGroup: block.muscleGroup,
+          exercises: block.exercises.map((exercise, exerciseIndex) => ({
+            exerciseNumber: exerciseIndex + 1,
+            name: exercise.name,
+            sets: exercise.sets,
+            reps: exercise.reps,
+            load: exercise.load,
+            completed: exercise.completed
+          }))
+        }))
+      }))
+    };
+    
+    // Convert to JSON and download
+    const dataStr = JSON.stringify(programData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${selectedProgram.title.replace(/\s+/g, '_')}_Program.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    
+    alert('Program exported successfully!');
+  };
+
+  const handleSetWeightChange = (blockIndex: number, exerciseIndex: number, setIndex: number, weight: string) => {
+    if (!selectedProgram) return;
+    
+    const updatedProgram = { ...selectedProgram };
+    const currentPhaseData = updatedProgram.phases[currentPhase - 1];
+    const block = currentPhaseData.blocks[blockIndex];
+    const exercise = block.exercises[exerciseIndex];
+    
+    // Initialize setDetails array if it doesn't exist
+    if (!exercise.setDetails) {
+      exercise.setDetails = [];
+    }
+    
+    // Initialize the specific set if it doesn't exist
+    if (!exercise.setDetails[setIndex]) {
+      exercise.setDetails[setIndex] = {};
+    }
+    
+    // Update the weight
+    exercise.setDetails[setIndex].weight = weight;
+    
+    // Clean and save
+    const cleanProgram = cleanProgramData(updatedProgram);
+    setSelectedProgram(cleanProgram);
+    
+    // Auto-save after a short delay
+    setTimeout(() => {
+      handleSaveProgram();
+    }, 1000);
+  };
+
+  const handleSetRestChange = (blockIndex: number, exerciseIndex: number, setIndex: number, restSec: string) => {
+    if (!selectedProgram) return;
+    
+    const updatedProgram = { ...selectedProgram };
+    const currentPhaseData = updatedProgram.phases[currentPhase - 1];
+    const block = currentPhaseData.blocks[blockIndex];
+    const exercise = block.exercises[exerciseIndex];
+    
+    // Initialize setDetails array if it doesn't exist
+    if (!exercise.setDetails) {
+      exercise.setDetails = [];
+    }
+    
+    // Initialize the specific set if it doesn't exist
+    if (!exercise.setDetails[setIndex]) {
+      exercise.setDetails[setIndex] = {};
+    }
+    
+    // Update the rest time
+    exercise.setDetails[setIndex].restSec = parseInt(restSec) || 0;
+    
+    // Clean and save
+    const cleanProgram = cleanProgramData(updatedProgram);
+    setSelectedProgram(cleanProgram);
+    
+    // Auto-save after a short delay
+    setTimeout(() => {
+      handleSaveProgram();
+    }, 1000);
+  };
+
+  const handleSetCompletionChange = (blockIndex: number, exerciseIndex: number, setIndex: number, completed: boolean) => {
+    if (!selectedProgram) return;
+    
+    const updatedProgram = { ...selectedProgram };
+    const currentPhaseData = updatedProgram.phases[currentPhase - 1];
+    const block = currentPhaseData.blocks[blockIndex];
+    const exercise = block.exercises[exerciseIndex];
+    
+    // Initialize setDetails array if it doesn't exist
+    if (!exercise.setDetails) {
+      exercise.setDetails = [];
+    }
+    
+    // Initialize the specific set if it doesn't exist
+    if (!exercise.setDetails[setIndex]) {
+      exercise.setDetails[setIndex] = {};
+    }
+    
+    // Update the completion status
+    exercise.setDetails[setIndex].completed = completed;
+    
+    // Clean and save
+    const cleanProgram = cleanProgramData(updatedProgram);
+    setSelectedProgram(cleanProgram);
+    
+    // Auto-save after a short delay
+    setTimeout(() => {
+      handleSaveProgram();
+    }, 1000);
+  };
+
+  const handleSetNotesChange = (blockIndex: number, exerciseIndex: number, setIndex: number, notes: string) => {
+    if (!selectedProgram) return;
+    
+    const updatedProgram = { ...selectedProgram };
+    const currentPhaseData = updatedProgram.phases[currentPhase - 1];
+    const block = currentPhaseData.blocks[blockIndex];
+    const exercise = block.exercises[exerciseIndex];
+    
+    // Initialize setDetails array if it doesn't exist
+    if (!exercise.setDetails) {
+      exercise.setDetails = [];
+    }
+    
+    // Initialize the specific set if it doesn't exist
+    if (!exercise.setDetails[setIndex]) {
+      exercise.setDetails[setIndex] = {};
+    }
+    
+    // Update the notes
+    exercise.setDetails[setIndex].notes = notes;
+    
+    // Clean and save
+    const cleanProgram = cleanProgramData(updatedProgram);
+    setSelectedProgram(cleanProgram);
+    
+    // Auto-save after a short delay
+    setTimeout(() => {
+      handleSaveProgram();
+    }, 1000);
+  };
+
+  const handleSetRepsChange = (blockIndex: number, exerciseIndex: number, setIndex: number, reps: string) => {
+    if (!selectedProgram) return;
+    
+    const updatedProgram = { ...selectedProgram };
+    const currentPhaseData = updatedProgram.phases[currentPhase - 1];
+    const block = currentPhaseData.blocks[blockIndex];
+    const exercise = block.exercises[exerciseIndex];
+    
+    // Initialize setDetails array if it doesn't exist
+    if (!exercise.setDetails) {
+      exercise.setDetails = [];
+    }
+    
+    // Initialize the specific set if it doesn't exist
+    if (!exercise.setDetails[setIndex]) {
+      exercise.setDetails[setIndex] = {};
+    }
+    
+    // Update the reps
+    exercise.setDetails[setIndex].reps = parseInt(reps) || 0;
+    
+    // Clean and save
+    const cleanProgram = cleanProgramData(updatedProgram);
+    setSelectedProgram(cleanProgram);
+    
+    // Auto-save after a short delay
+    setTimeout(() => {
+      handleSaveProgram();
+    }, 1000);
+  };
+
+  const handleBlockNameChange = (blockIndex: number, newName: string) => {
+    if (!selectedProgram) return;
+    
+    const updatedProgram = { ...selectedProgram };
+    const currentPhaseData = updatedProgram.phases[currentPhase - 1];
+    const block = currentPhaseData.blocks[blockIndex];
+    
+    // Update the block name
+    block.muscleGroup = newName;
+    
+    // Clean and save
+    const cleanProgram = cleanProgramData(updatedProgram);
+    setSelectedProgram(cleanProgram);
+    
+    // Auto-save after a short delay
+    setTimeout(() => {
+      handleSaveProgram();
+    }, 1000);
+  };
+
+  const [editingBlockName, setEditingBlockName] = useState<{ blockIndex: number; currentName: string } | null>(null);
+  const [editingBlockNameInput, setEditingBlockNameInput] = useState('');
+
+  const handleOpenBlockNameEdit = (blockIndex: number, currentName: string) => {
+    setEditingBlockName({ blockIndex, currentName });
+    setEditingBlockNameInput(currentName);
+  };
+
+  const handleCloseBlockNameEdit = () => {
+    setEditingBlockName(null);
+    setEditingBlockNameInput('');
+  };
+
+  const handleSaveBlockNameEdit = () => {
+    if (editingBlockName && editingBlockNameInput.trim()) {
+      handleBlockNameChange(editingBlockName.blockIndex, editingBlockNameInput.trim());
+      handleCloseBlockNameEdit();
+    }
+  };
+
+  // Edit Block Name Popup Modal
+  const renderEditBlockNameModal = () => {
+    if (!editingBlockName) return null;
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-xl max-w-md w-full p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Edit Block Name
+            </h3>
+            <button
+              onClick={handleCloseBlockNameEdit}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
           
-          {/* Quick Actions */}
-          <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-600">
-            <h4 className="text-md font-semibold mb-4 text-gray-700 dark:text-gray-300">Quick Actions</h4>
-            <div className="flex space-x-4">
-              <button className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-                Copy from Another Athlete
-              </button>
-              <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
-                Import from Template Library
-              </button>
-              <button className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700">
-                Schedule Follow-up
-              </button>
-            </div>
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Block Name
+            </label>
+            <input
+              type="text"
+              value={editingBlockNameInput}
+              onChange={(e) => setEditingBlockNameInput(e.target.value)}
+              className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Enter block name..."
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleSaveBlockNameEdit();
+                } else if (e.key === 'Escape') {
+                  handleCloseBlockNameEdit();
+                }
+              }}
+            />
+          </div>
+          
+          <div className="flex justify-end space-x-3">
+            <button
+              onClick={handleCloseBlockNameEdit}
+              className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSaveBlockNameEdit}
+              disabled={!editingBlockNameInput.trim()}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+            >
+              Save Changes
+            </button>
           </div>
         </div>
       </div>
@@ -1441,6 +2684,7 @@ const Programs: React.FC = () => {
       {viewMode === 'detail' && renderSweatSheetDetail()}
       {viewMode === 'create-assign' && renderCreateAssignProgram()}
       {viewMode === 'exercise-library' && renderExerciseLibrary()}
+      {renderEditBlockNameModal()}
     </div>
   );
 };

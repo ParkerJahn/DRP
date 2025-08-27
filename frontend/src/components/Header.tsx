@@ -195,22 +195,22 @@ function Header() {
                     {/* Drawer */}
                     <div
                         ref={drawerRef}
-                        className="fixed top-0 left-0 h-full w-64 bg-neutral-200 dark:bg-neutral-800 text-black dark:text-white shadow-lg z-50 transform transition-transform duration-300 ease-in-out"
+                        className="fixed top-0 left-0 h-full w-64 bg-neutral-200 dark:bg-neutral-800 text-black dark:text-white shadow-lg z-50 transform transition-transform duration-300 ease-in-out flex flex-col"
                     >
-                        {/* Header */}
-                        <div className="flex justify-between items-center p-4 border-b border-neutral-300 dark:border-neutral-600">
+                        {/* Header - Fixed */}
+                        <div className="flex justify-between items-center p-4 border-b border-neutral-300 dark:border-neutral-600 flex-shrink-0">
                             <h2 className="text-lg font-semibold font-ethnocentric">Navigation</h2>
                             <button
-                                onClick={() => setIsOpen(false)} // Changed from setIsDrawerOpen
+                                onClick={() => setIsOpen(false)}
                                 className="p-2 hover:bg-neutral-300 dark:hover:bg-neutral-700 rounded transition-colors"
                             >
                                 <Icon type="close" />
                             </button>
                         </div>
 
-                        {/* User Info */}
+                        {/* User Info - Fixed */}
                         {user.role && (
-                            <div className="p-4 border-b border-neutral-300 dark:border-neutral-600">
+                            <div className="p-4 border-b border-neutral-300 dark:border-neutral-600 flex-shrink-0">
                                 <div className="text-sm font-semibold text-blue-800 dark:text-blue-200">
                                     Role: {user.role}
                                 </div>
@@ -222,31 +222,34 @@ function Header() {
                             </div>
                         )}
 
-                        {/* Navigation Links */}
-                        <nav className="flex-1 p-4 space-y-2">
-                            {getNavigationItems().map((item, index) => (
-                                <button 
-                                    key={index}
-                                    onClick={() => {
-                                        navigate(item.path);
-                                        setIsOpen(false);
-                                    }}
-                                    className="w-full flex items-center gap-3 p-3 text-left hover:bg-neutral-300 dark:hover:bg-neutral-700 rounded transition-colors"
-                                >
-                                    <Icon type={item.icon} />
-                                    <span>{item.label}</span>
-                                </button>
-                            ))}
-                        </nav>
+                        {/* Scrollable Content */}
+                        <div className="flex-1 overflow-y-auto">
+                            {/* Navigation Links */}
+                            <nav className="p-4 space-y-2">
+                                {getNavigationItems().map((item, index) => (
+                                    <button 
+                                        key={index}
+                                        onClick={() => {
+                                            navigate(item.path);
+                                            setIsOpen(false);
+                                        }}
+                                        className="w-full flex items-center gap-3 p-3 text-left hover:bg-neutral-300 dark:hover:bg-neutral-700 rounded transition-colors"
+                                    >
+                                        <Icon type={item.icon} />
+                                        <span>{item.label}</span>
+                                    </button>
+                                ))}
+                            </nav>
+                        </div>
 
-                        {/* Footer Actions */}
-                        <div className="p-4 border-t border-neutral-300 dark:border-neutral-600 space-y-2">
+                        {/* Footer Actions - Fixed */}
+                        <div className="p-4 border-t border-neutral-300 dark:border-neutral-600 space-y-2 flex-shrink-0">
                             <button 
                                 onClick={() => {
                                     navigate('/app/help');
                                     setIsOpen(false);
                                 }}
-                                className="w-full flex items-center gap-3 p-3 text-left text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900 rounded transition-colors"
+                                className="w-full flex items-center gap-3 p-3 text-left text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900 rounded transition-colors duration-200"
                             >
                                 <Icon type="help" />
                                 <span>Help</span>
@@ -254,7 +257,7 @@ function Header() {
                             
                             <button 
                                 onClick={handleLogout}
-                                className="w-full flex items-center gap-3 p-3 text-left text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900 rounded transition-colors"
+                                className="w-full flex items-center gap-3 p-3 text-left text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900 rounded transition-colors duration-200"
                             >
                                 <Icon type="logout" />
                                 <span>Logout</span>

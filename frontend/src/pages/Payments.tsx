@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { useFreeAccess } from '../hooks/useFreeAccess';
 import { 
   getPaymentsByPro, 
   getPaymentsByPayer, 
@@ -11,6 +12,7 @@ import type { Payment, PaymentStatus } from '../types';
 
 const Payments: React.FC = () => {
   const { user } = useAuth();
+  const { hasFreeAccess } = useFreeAccess();
   const [payments, setPayments] = useState<Array<Payment & { id: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<PaymentStatus | 'all'>('all');
@@ -164,6 +166,25 @@ const Payments: React.FC = () => {
             </button>
           )}
         </div>
+
+        {/* Free Access Indicator */}
+        {hasFreeAccess && (
+          <div className="mb-6 p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded-lg">
+            <div className="flex items-center">
+              <div className="p-2 bg-purple-100 dark:bg-purple-800 rounded-lg">
+                <span className="text-xl">🔓</span>
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-purple-700 dark:text-purple-300">
+                  Free Access Mode Active
+                </p>
+                <p className="text-xs text-purple-600 dark:text-purple-400">
+                  You have indefinite free access to all features. No payments required.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Analytics Cards (PRO only) */}
         {canViewAnalytics && (

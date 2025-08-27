@@ -1,0 +1,16 @@
+{
+  "projects": {
+    "default": "drp-workshop"
+  },
+  "targets": {
+    "drp-workshop": {
+      "hosting": {
+        "main": [
+          "drp-workshop",
+          "drpworkshop-com"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

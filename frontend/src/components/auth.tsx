@@ -291,6 +291,13 @@ export const SignIn = ({ onSwitchToRegister, onAuthSuccess }: { onSwitchToRegist
 export const Auth = ({ onAuthSuccess }: { onAuthSuccess: (userData: { uid: string; email: string | null; displayName: string; role: string }) => void }) => {
   const [isRegistering, setIsRegistering] = useState(false);
 
+  // Check if we're on the register route and automatically show registration form
+  useEffect(() => {
+    if (window.location.pathname === '/register') {
+      setIsRegistering(true);
+    }
+  }, []);
+
   const switchToRegister = () => setIsRegistering(true);
   const switchToSignIn = () => setIsRegistering(false);
 

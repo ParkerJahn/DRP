@@ -164,221 +164,221 @@ const Contact: React.FC = () => {
       />
       
       <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-900">
-      {/* Navigation */}
-      <nav className="px-6 py-4 flex justify-between items-start relative">
-        {/* Left: DRP Workshop Text */}
-        <div className="flex flex-col space-y-3">
-          <div className="text-2xl font-bold text-white mt-4">DRP Workshop</div>
+      {/* Mobile-Optimized Navigation */}
+      <nav className="px-4 sm:px-6 py-4 flex flex-col sm:flex-row justify-between items-center relative">
+        {/* Mobile: Stacked layout, Desktop: Side by side */}
+        <div className="flex flex-col sm:flex-row items-center space-y-3 sm:space-y-0 sm:space-x-6 mb-4 sm:mb-0">
+          <div className="text-xl sm:text-2xl font-bold text-white">DRP Workshop</div>
         </div>
         
-        {/* Center: Logo + Navigation Links */}
-        <div className="absolute left-1/2 transform -translate-x-1/2 flex flex-col items-center">
+        {/* Center: Logo + Navigation Links - Mobile optimized */}
+        <div className="flex flex-col items-center mb-4 sm:mb-0">
           <img 
-            className="w-[120px] h-[72px] transition-opacity duration-300 mb-4" 
+            className="w-20 h-12 sm:w-[120px] sm:h-[72px] transition-opacity duration-300 mb-4" 
             src={darkLogo} 
             alt="DRP Workshop Logo"
           />
           <div className="animated-line"></div>
-          <div className="flex gap-2 bg-neutral-800 rounded-lg">
-            <a href={ROUTES.LANDING} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm">Home</a>
-            <a href={ROUTES.ABOUT} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm">About</a>
-            <a href={ROUTES.FEATURES} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm">Features</a>
-            <a href={ROUTES.PRICING} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm">Pricing</a>
+          {/* Mobile: Stacked navigation, Desktop: Horizontal */}
+          <div className="flex flex-col sm:flex-row gap-2 bg-neutral-800 rounded-lg p-2">
+            <a href={ROUTES.LANDING} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm text-center">Home</a>
+            <a href={ROUTES.ABOUT} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm text-center">About</a>
+            <a href={ROUTES.FEATURES} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm text-center">Features</a>
+            <a href={ROUTES.PRICING} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm text-center">Pricing</a>
           </div>
         </div>
         
         {/* Right: Get Started Button */}
-        <div className="flex justify-end">
-          <a href={ROUTES.AUTH} className="px-4 py-2 mt-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-200 font-medium text-sm">Get Started</a>
+        <div className="flex justify-center sm:justify-end w-full sm:w-auto">
+          <a href={ROUTES.GET_STARTED} className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-200 font-medium text-sm w-full sm:w-auto text-center">Get Started</a>
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <div className="text-center text-white px-6 py-20">
-        <h1 className="text-5xl font-bold mb-6">Get in Touch</h1>
-        <p className="text-xl text-gray-200 max-w-3xl mx-auto leading-relaxed">
-          Have questions about DRP Workshop? We're here to help you get started and make the most of our platform.
+      {/* Mobile-Optimized Hero Section */}
+      <div className="text-center text-white px-4 sm:px-6 py-12 sm:py-20">
+        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 sm:mb-6 px-2">Contact Us</h1>
+        <p className="text-lg sm:text-xl text-gray-200 max-w-3xl mx-auto leading-relaxed px-4">
+          Have questions? Need support? Want to schedule a demo? We're here to help you succeed.
         </p>
       </div>
 
-      {/* Contact Methods */}
-      <div className="px-6 py-20">
-        <div className="max-w-6xl mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-20">
-            {/* Email Support */}
-            <div className="text-center">
-              <div className="w-20 h-20 bg-indigo-500 rounded-full flex items-center justify-center mx-auto mb-6">
-                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
+      {/* Mobile-Optimized Contact Form Section */}
+      <div className="px-4 sm:px-6 py-12 sm:py-20">
+        <div className="max-w-4xl mx-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 sm:gap-12">
+            {/* Contact Information */}
+            <div className="space-y-6 sm:space-y-8">
+              <h2 className="text-2xl sm:text-3xl font-bold text-white mb-4 sm:mb-6">Get in Touch</h2>
+              
+              <div className="space-y-4 sm:space-y-6">
+                <div className="flex items-start space-x-3 sm:space-x-4">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 bg-indigo-500 rounded-full flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-lg sm:text-xl font-semibold text-white mb-1">Email</h3>
+                    <p className="text-gray-300 text-sm sm:text-base">support@drpworkshop.com</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start space-x-3 sm:space-x-4">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 bg-purple-500 rounded-full flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-lg sm:text-xl font-semibold text-white mb-1">Response Time</h3>
+                    <p className="text-gray-300 text-sm sm:text-base">Within 24 hours</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start space-x-3 sm:space-x-4">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 bg-indigo-600 rounded-full flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-lg sm:text-xl font-semibold text-white mb-1">Support</h3>
+                    <p className="text-gray-300 text-sm sm:text-base">24/7 platform support</p>
+                  </div>
+                </div>
               </div>
-              <h3 className="text-2xl font-semibold mb-4 text-white">Email Support</h3>
-              <p className="text-gray-300 mb-4">Get help with your account or technical questions</p>
-              <a href="mailto:support@drpworkshop.com" className="text-indigo-400 hover:text-indigo-300 font-medium">
-                support@drpworkshop.com
-              </a>
             </div>
             
-            {/* Sales Inquiries */}
-            <div className="text-center">
-              <div className="w-20 h-20 bg-purple-500 rounded-full flex items-center justify-center mx-auto mb-6">
-                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
-                </svg>
-              </div>
-              <h3 className="text-2xl font-semibold mb-4 text-white">Sales Inquiries</h3>
-              <p className="text-gray-300 mb-4">Learn more about our plans and pricing</p>
-              <a href="mailto:sales@drpworkshop.com" className="text-purple-400 hover:text-purple-300 font-medium">
-                sales@drpworkshop.com
-              </a>
-            </div>
-            
-            {/* Live Chat */}
-            <div className="text-center">
-              <div className="w-20 h-20 bg-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-              </div>
-              <h3 className="text-2xl font-semibold mb-4 text-white">Live Chat</h3>
-              <p className="text-gray-300 mb-4">Chat with our support team in real-time</p>
-              <button className="text-indigo-400 hover:text-indigo-300 font-medium">
-                Start Chat
-              </button>
+            {/* Contact Form */}
+            <div className="bg-black bg-opacity-20 p-4 sm:p-6 rounded-lg border border-gray-700">
+              <h2 className="text-xl sm:text-2xl font-bold text-white mb-4 sm:mb-6">Send us a Message</h2>
+              
+              <form className="space-y-6" onSubmit={handleSubmit}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label htmlFor="firstName" className="block text-white font-medium mb-2">First Name</label>
+                    <input
+                      type="text"
+                      id="firstName"
+                      name="firstName"
+                      value={formData.firstName}
+                      onChange={handleInputChange}
+                      onBlur={handleInputBlur}
+                      className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
+                        errors.firstName ? 'border-red-500' : 'border-gray-700'
+                      }`}
+                      placeholder="Enter your first name"
+                      required
+                    />
+                    {errors.firstName && (
+                      <p className="text-red-400 text-sm mt-1">{errors.firstName}</p>
+                    )}
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="lastName" className="block text-white font-medium mb-2">Last Name</label>
+                    <input
+                      type="text"
+                      id="lastName"
+                      name="lastName"
+                      value={formData.lastName}
+                      onChange={handleInputChange}
+                      onBlur={handleInputBlur}
+                      className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
+                        errors.lastName ? 'border-red-500' : 'border-gray-700'
+                      }`}
+                      placeholder="Enter your last name"
+                      required
+                    />
+                    {errors.lastName && (
+                      <p className="text-red-400 text-sm mt-1">{errors.lastName}</p>
+                    )}
+                  </div>
+                </div>
+                
+                <div>
+                  <label htmlFor="email" className="block text-white font-medium mb-2">Email Address</label>
+                  <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    onBlur={handleInputBlur}
+                    className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
+                      errors.email ? 'border-red-500' : 'border-gray-700'
+                    }`}
+                    placeholder="Enter your email address"
+                    required
+                  />
+                  {errors.email && (
+                    <p className="text-red-400 text-sm mt-1">{errors.email}</p>
+                  )}
+                </div>
+                
+                <div>
+                  <label htmlFor="subject" className="block text-white font-medium mb-2">Subject</label>
+                  <select
+                    id="subject"
+                    name="subject"
+                    value={formData.subject}
+                    onChange={handleInputChange}
+                    className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
+                      errors.subject ? 'border-red-500' : 'border-gray-700'
+                    }`}
+                    required
+                  >
+                    <option value="">Select a subject</option>
+                    <option value="general">General Inquiry</option>
+                    <option value="support">Technical Support</option>
+                    <option value="sales">Sales Question</option>
+                    <option value="billing">Billing Question</option>
+                    <option value="feature">Feature Request</option>
+                    <option value="other">Other</option>
+                  </select>
+                  {errors.subject && (
+                    <p className="text-red-400 text-sm mt-1">{errors.subject}</p>
+                  )}
+                </div>
+                
+                <div>
+                  <label htmlFor="message" className="block text-white font-medium mb-2">Message</label>
+                  <textarea
+                    id="message"
+                    name="message"
+                    rows={6}
+                    value={formData.message}
+                    onChange={handleInputChange}
+                    onBlur={handleInputBlur}
+                    className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
+                      errors.message ? 'border-red-500' : 'border-gray-700'
+                    }`}
+                    placeholder="Tell us how we can help you..."
+                    required
+                  ></textarea>
+                  {errors.message && (
+                    <p className="text-red-400 text-sm mt-1">{errors.message}</p>
+                  )}
+                </div>
+                
+                {errors.submit && (
+                  <div className="text-center">
+                    <p className="text-red-400 text-sm">{errors.submit}</p>
+                  </div>
+                )}
+                
+                <div className="text-center">
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="inline-block bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-8 py-4 rounded-lg font-semibold text-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSubmitting ? 'Sending...' : 'Send Message'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Contact Form */}
-      <div className="px-6 py-20 bg-black bg-opacity-20">
-        <div className="max-w-4xl mx-auto">
-          <h2 className="text-3xl font-bold text-white text-center mb-16">Send us a Message</h2>
-          
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label htmlFor="firstName" className="block text-white font-medium mb-2">First Name</label>
-                <input
-                  type="text"
-                  id="firstName"
-                  name="firstName"
-                  value={formData.firstName}
-                  onChange={handleInputChange}
-                  onBlur={handleInputBlur}
-                  className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
-                    errors.firstName ? 'border-red-500' : 'border-gray-700'
-                  }`}
-                  placeholder="Enter your first name"
-                  required
-                />
-                {errors.firstName && (
-                  <p className="text-red-400 text-sm mt-1">{errors.firstName}</p>
-                )}
-              </div>
-              
-              <div>
-                <label htmlFor="lastName" className="block text-white font-medium mb-2">Last Name</label>
-                <input
-                  type="text"
-                  id="lastName"
-                  name="lastName"
-                  value={formData.lastName}
-                  onChange={handleInputChange}
-                  onBlur={handleInputBlur}
-                  className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
-                    errors.lastName ? 'border-red-500' : 'border-gray-700'
-                  }`}
-                  placeholder="Enter your last name"
-                  required
-                />
-                {errors.lastName && (
-                  <p className="text-red-400 text-sm mt-1">{errors.lastName}</p>
-                )}
-              </div>
-            </div>
-            
-            <div>
-              <label htmlFor="email" className="block text-white font-medium mb-2">Email Address</label>
-              <input
-                type="email"
-                id="email"
-                name="email"
-                value={formData.email}
-                onChange={handleInputChange}
-                onBlur={handleInputBlur}
-                className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
-                  errors.email ? 'border-red-500' : 'border-gray-700'
-                }`}
-                placeholder="Enter your email address"
-                required
-              />
-              {errors.email && (
-                <p className="text-red-400 text-sm mt-1">{errors.email}</p>
-              )}
-            </div>
-            
-            <div>
-              <label htmlFor="subject" className="block text-white font-medium mb-2">Subject</label>
-              <select
-                id="subject"
-                name="subject"
-                value={formData.subject}
-                onChange={handleInputChange}
-                className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
-                  errors.subject ? 'border-red-500' : 'border-gray-700'
-                }`}
-                required
-              >
-                <option value="">Select a subject</option>
-                <option value="general">General Inquiry</option>
-                <option value="support">Technical Support</option>
-                <option value="sales">Sales Question</option>
-                <option value="billing">Billing Question</option>
-                <option value="feature">Feature Request</option>
-                <option value="other">Other</option>
-              </select>
-              {errors.subject && (
-                <p className="text-red-400 text-sm mt-1">{errors.subject}</p>
-              )}
-            </div>
-            
-            <div>
-              <label htmlFor="message" className="block text-white font-medium mb-2">Message</label>
-              <textarea
-                id="message"
-                name="message"
-                rows={6}
-                value={formData.message}
-                onChange={handleInputChange}
-                onBlur={handleInputBlur}
-                className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
-                  errors.message ? 'border-red-500' : 'border-gray-700'
-                }`}
-                placeholder="Tell us how we can help you..."
-                required
-              ></textarea>
-              {errors.message && (
-                <p className="text-red-400 text-sm mt-1">{errors.message}</p>
-              )}
-            </div>
-            
-            {errors.submit && (
-              <div className="text-center">
-                <p className="text-red-400 text-sm">{errors.submit}</p>
-              </div>
-            )}
-            
-            <div className="text-center">
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="inline-block bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-8 py-4 rounded-lg font-semibold text-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSubmitting ? 'Sending...' : 'Send Message'}
-              </button>
-            </div>
-          </form>
         </div>
       </div>
 

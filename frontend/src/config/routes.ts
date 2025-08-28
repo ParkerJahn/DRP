@@ -18,6 +18,7 @@ export const ROUTES = {
   ABOUT: '/about',
   FEATURES: '/features',
   CONTACT: '/contact',
+  GET_STARTED: '/get-started',
   
   // Auth routes (only accessible when NOT authenticated)
   AUTH: '/auth',
@@ -78,6 +79,14 @@ export const ROUTE_CONFIG: Record<string, RouteConfig> = {
     path: ROUTES.CONTACT,
     component: 'Contact',
     title: 'Contact',
+    requiresAuth: false,
+    isPublic: true,
+  },
+  
+  [ROUTES.GET_STARTED]: {
+    path: ROUTES.GET_STARTED,
+    component: 'GetStarted',
+    title: 'Get Started',
     requiresAuth: false,
     isPublic: true,
   },

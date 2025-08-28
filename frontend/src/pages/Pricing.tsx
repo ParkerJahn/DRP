@@ -41,62 +41,63 @@ const Pricing: React.FC = () => {
       />
       
       <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-900">
-      {/* Navigation */}
-      <nav className="px-6 py-4 flex justify-between items-start relative">
-        {/* Left: DRP Workshop Text */}
-        <div className="flex flex-col space-y-3">
-          <div className="text-2xl font-bold text-white mt-4">DRP Workshop</div>
+      {/* Mobile-Optimized Navigation */}
+      <nav className="px-4 sm:px-6 py-4 flex flex-col sm:flex-row justify-between items-center relative">
+        {/* Mobile: Stacked layout, Desktop: Side by side */}
+        <div className="flex flex-col sm:flex-row items-center space-y-3 sm:space-y-0 sm:space-x-6 mb-4 sm:mb-0">
+          <div className="text-xl sm:text-2xl font-bold text-white">DRP Workshop</div>
         </div>
         
-        {/* Center: Logo + Navigation Links */}
-        <div className="absolute left-1/2 transform -translate-x-1/2 flex flex-col items-center">
+        {/* Center: Logo + Navigation Links - Mobile optimized */}
+        <div className="flex flex-col items-center mb-4 sm:mb-0">
           <img 
-            className="w-[120px] h-[72px] transition-opacity duration-300 mb-4" 
+            className="w-20 h-12 sm:w-[120px] sm:h-[72px] transition-opacity duration-300 mb-4" 
             src={darkLogo} 
             alt="DRP Workshop Logo"
           />
           <div className="animated-line"></div>
-          <div className="flex gap-2 bg-neutral-800 rounded-lg">
-            <a href={ROUTES.LANDING} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm">Home</a>
-            <a href={ROUTES.ABOUT} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm">About</a>
-            <a href={ROUTES.FEATURES} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm">Features</a>
-            <a href={ROUTES.CONTACT} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm">Contact</a>
+          {/* Mobile: Stacked navigation, Desktop: Horizontal */}
+          <div className="flex flex-col sm:flex-row gap-2 bg-neutral-800 rounded-lg p-2">
+            <a href={ROUTES.LANDING} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm text-center">Home</a>
+            <a href={ROUTES.ABOUT} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm text-center">About</a>
+            <a href={ROUTES.FEATURES} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm text-center">Features</a>
+            <a href={ROUTES.CONTACT} className="px-3 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-all duration-200 text-sm text-center">Contact</a>
           </div>
         </div>
         
         {/* Right: Get Started Button */}
-        <div className="flex justify-end">
-          <a href={ROUTES.AUTH} className="px-4 py-2 mt-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-200 font-medium text-sm">Get Started</a>
+        <div className="flex justify-center sm:justify-end w-full sm:w-auto">
+          <a href={ROUTES.GET_STARTED} className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-200 font-medium text-sm w-full sm:w-auto text-center">Get Started</a>
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <div className="text-center text-white px-6 py-20">
-        <h1 className="text-5xl font-bold mb-6">Simple, Transparent Pricing</h1>
-        <p className="text-xl text-gray-200 max-w-3xl mx-auto leading-relaxed">
+      {/* Mobile-Optimized Hero Section */}
+      <div className="text-center text-white px-4 sm:px-6 py-12 sm:py-20">
+        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 sm:mb-6 px-2">Simple, Transparent Pricing</h1>
+        <p className="text-lg sm:text-xl text-gray-200 max-w-3xl mx-auto leading-relaxed px-4">
           Choose the plan that's right for your team. Start free and upgrade when you're ready.
         </p>
       </div>
 
-      {/* Pricing Plans Accordion */}
-      <div className="px-6 py-20">
+      {/* Mobile-Optimized Pricing Plans Accordion */}
+      <div className="px-4 sm:px-6 py-12 sm:py-20">
         <div className="max-w-5xl mx-auto">
           <div className="relative">
             {/* Navigation Buttons */}
             <button 
               onClick={() => setCurrentPlan((prev) => (prev === 0 ? 3 : prev - 1))}
-              className="absolute left-0 top-1/2 transform -translate-y-1/2 -translate-x-2 z-20 w-12 h-12 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full flex items-center justify-center transition-all duration-300 shadow-lg hover:shadow-xl"
+              className="absolute left-0 top-1/2 transform -translate-y-1/2 -translate-x-2 z-20 w-10 h-10 sm:w-12 sm:h-12 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full flex items-center justify-center transition-all duration-300 shadow-lg hover:shadow-xl"
             >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
             
             <button 
               onClick={() => setCurrentPlan((prev) => (prev === 3 ? 0 : prev + 1))}
-              className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-2 z-20 w-12 h-12 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full flex items-center justify-center transition-all duration-300 shadow-lg hover:shadow-xl"
+              className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-2 z-20 w-10 h-10 sm:w-12 sm:h-12 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full flex items-center justify-center transition-all duration-300 shadow-lg hover:shadow-xl"
             >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </button>

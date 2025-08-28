@@ -1,11 +1,46 @@
 import React, { useState } from 'react';
 import { ROUTES } from '../config/routes';
 import darkLogo from '/darkmodelogo.png';
+import SEO from '../components/SEO';
 
 const Pricing: React.FC = () => {
   const [currentPlan, setCurrentPlan] = useState(1);
+  
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    "name": "DRP Workshop",
+    "description": "Comprehensive coaching platform for athletes and coaches",
+    "url": "https://drpworkshop.com/pricing",
+    "offers": [
+      {
+        "@type": "Offer",
+        "name": "Free Trial",
+        "price": "0",
+        "priceCurrency": "USD",
+        "description": "Perfect for trying out DRP Workshop"
+      },
+      {
+        "@type": "Offer",
+        "name": "PRO Plan",
+        "price": "29",
+        "priceCurrency": "USD",
+        "description": "Full access to all features"
+      }
+    ]
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-900">
+    <>
+      <SEO
+        title="Pricing - DRP Workshop"
+        description="Simple, transparent pricing for DRP Workshop. Choose the plan that's right for your team. Start free and upgrade when you're ready."
+        keywords="DRP Workshop pricing, coaching platform cost, team management software pricing, workout program software pricing, athlete coaching platform pricing"
+        url="/pricing"
+        structuredData={structuredData}
+      />
+      
+      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-900">
       {/* Navigation */}
       <nav className="px-6 py-4 flex justify-between items-start relative">
         {/* Left: DRP Workshop Text */}
@@ -398,6 +433,7 @@ const Pricing: React.FC = () => {
         </div>
       </footer>
     </div>
+    </>
   );
 };
 

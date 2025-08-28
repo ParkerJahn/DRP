@@ -6,6 +6,7 @@ import { validatePassword } from '../utils/validation';
 import { CSRFProtection, SecurityAudit } from '../utils/security';
 import PasswordStrengthIndicator from './PasswordStrengthIndicator';
 import { PasswordChangeTracker } from '../utils/passwordTracking';
+import { PasswordSecurityManager } from '../utils/passwordSecurityManager';
 
 const MandatoryPasswordChange: React.FC = () => {
   const { user } = useAuth();
@@ -114,6 +115,15 @@ const MandatoryPasswordChange: React.FC = () => {
 
       // Mark that this user has completed password change
       PasswordChangeTracker.markPasswordChangeCompleted(user?.uid || '');
+
+      // Clear the password change requirement flag from user metadata
+      try {
+        await PasswordSecurityManager.clearPasswordChangeRequirement(user?.uid || '');
+        console.log('✅ Password change requirement flag cleared');
+      } catch (error) {
+        console.warn('⚠️ Failed to clear password change requirement flag:', error);
+        // Don't block the user if this fails - they've already changed their password
+      }
 
       // Clear any existing errors
       setError(null);

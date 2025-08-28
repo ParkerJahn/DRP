@@ -3,11 +3,14 @@ import { useAuth } from '../hooks/useAuth';
 import { validateName, validatePhone } from '../utils/validation';
 import { CSRFProtection, SecurityAudit, EnhancedSanitizer } from '../utils/security';
 import PasswordChange from '../components/PasswordChange';
+import PasswordSecurityAdmin from '../components/PasswordSecurityAdmin';
+import { getAuth } from 'firebase/auth';
 
 const Profile: React.FC = () => {
   const { user, refreshUser } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [showPasswordChange, setShowPasswordChange] = useState(false);
+  const [showPasswordSecurityAdmin, setShowPasswordSecurityAdmin] = useState(false);
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -163,6 +166,98 @@ const Profile: React.FC = () => {
     
     // Log profile edit cancelled
     SecurityAudit.logSecurityEvent('info', 'Profile edit cancelled', user?.uid, 'profile_edit_cancelled');
+  };
+
+  const handleFixProId = async () => {
+    if (!user || user.role !== 'PRO') return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Get the current user's ID token
+      const idToken = await getAuth().currentUser?.getIdToken();
+      
+      if (!idToken) {
+        throw new Error('No authentication token available');
+      }
+      
+      // Call the Cloud Function to fix the proId
+      const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/fixExistingProUser', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${idToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setSuccess('Team ID fixed successfully! Refreshing...');
+        // Refresh user data to get the updated proId
+        await refreshUser();
+        setTimeout(() => setSuccess(null), 3000);
+      } else {
+        throw new Error(result.error || 'Failed to fix Team ID');
+      }
+      
+    } catch (error) {
+      console.error('Error fixing proId:', error);
+      setError('Failed to fix Team ID. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAutoFixProUsers = async () => {
+    if (!user || user.role !== 'PRO') return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Get the current user's ID token
+      const idToken = await getAuth().currentUser?.getIdToken();
+      
+      if (!idToken) {
+        throw new Error('No authentication token available');
+      }
+      
+      // Call the Cloud Function to auto-fix all PRO users
+      const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/autoFixProUsers', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${idToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setSuccess(`Auto-fixed ${result.fixedUsers.length} PRO users! Refreshing...`);
+        // Refresh user data
+        await refreshUser();
+        setTimeout(() => setSuccess(null), 5000);
+      } else {
+        throw new Error(result.error || 'Failed to auto-fix PRO users');
+      }
+      
+    } catch (error) {
+      console.error('Error auto-fixing PRO users:', error);
+      setError('Failed to auto-fix PRO users. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!user) {
@@ -373,7 +468,20 @@ const Profile: React.FC = () => {
                   }`}>
                     {user.proStatus === 'active' ? 'Active' : 'Inactive'}
                   </span>
+                  {user.proStatus === 'active' && !user.proId && (
+                    <button
+                      onClick={handleFixProId}
+                      className="px-3 py-1 bg-purple-600 text-white text-xs rounded-lg hover:bg-purple-700 transition-colors"
+                    >
+                      Fix Team ID
+                    </button>
+                  )}
                 </div>
+                {user.proStatus === 'active' && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    Team ID: {user.proId || 'Not Set'}
+                  </p>
+                )}
               </div>
             )}
 
@@ -410,9 +518,31 @@ const Profile: React.FC = () => {
         <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Account Actions</h2>
           <div className="flex flex-wrap gap-4">
-            <button className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors">
+            <button 
+              onClick={() => setShowPasswordChange(true)}
+              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+            >
               Change Password
             </button>
+            
+            {user.role === 'PRO' && (
+              <button 
+                onClick={() => setShowPasswordSecurityAdmin(true)}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                Password Security Admin
+              </button>
+            )}
+            
+            {user.role === 'PRO' && (
+              <button
+                onClick={handleAutoFixProUsers}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                Auto-Fix All PRO Users
+              </button>
+            )}
+            
             <button className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">
               Delete Account
             </button>
@@ -420,6 +550,7 @@ const Profile: React.FC = () => {
         </div>
       </div>
       {showPasswordChange && <PasswordChange onClose={() => setShowPasswordChange(false)} />}
+      {showPasswordSecurityAdmin && <PasswordSecurityAdmin onClose={() => setShowPasswordSecurityAdmin(false)} />}
     </div>
   );
 };

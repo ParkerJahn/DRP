@@ -536,31 +536,60 @@ function TeamManagement() {
     }
   }, [user?.uid]);
 
+  const getBaseOrigin = (): string => {
+    // Prefer explicit env var when provided
+    const envBase = (import.meta as any)?.env?.VITE_APP_BASE_URL as string | undefined;
+    if (envBase) {
+      try { return new URL(envBase).origin; } catch { /* ignore */ }
+    }
+    // Fallback to the current site origin
+    return window.location.origin;
+  };
+
+  const normalizeInviteUrl = (rawUrl: string): string => {
+    try {
+      const incoming = new URL(rawUrl);
+      const desiredOrigin = getBaseOrigin();
+      const desired = new URL(desiredOrigin);
+      // Preserve path and query from the incoming link but swap origin
+      return `${desired.origin}${incoming.pathname}${incoming.search}${incoming.hash}`;
+    } catch {
+      // If parsing fails, fallback to joining with /join route and token if present
+      const base = getBaseOrigin();
+      return rawUrl.startsWith('/') ? `${base}${rawUrl}` : `${base}/join`;
+    }
+  };
+
   const createInvite = async (role: 'STAFF' | 'ATHLETE', email?: string) => {
-    if (!user?.uid) return null;
-    
     try {
       setCreatingInvite(true);
-      
+      // Include Firebase ID token for auth
+      if (!firebaseUser) {
+        throw new Error('User not authenticated');
+      }
+      const token = await firebaseUser.getIdToken();
       const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/createInvite', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await firebaseUser!.getIdToken()}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ role, email })
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create invite');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to create invite (HTTP ${response.status})`);
       }
 
       const result = await response.json();
-      return result.invite;
+      // Normalize URL to the current origin (production) if function returned localhost
+      const fixedUrl = normalizeInviteUrl(result.invite.inviteUrl);
+      return { ...result.invite, inviteUrl: fixedUrl } as typeof result.invite;
     } catch (error) {
       console.error('Error creating invite:', error);
-      throw error;
+      alert('Failed to create invite. Please sign in again and try once more.');
+      return null;
     } finally {
       setCreatingInvite(false);
     }
@@ -570,35 +599,26 @@ function TeamManagement() {
     try {
       const invite = await createInvite(role, undefined);
       if (invite) {
-        // Generate QR code for the invite
+        // Generate QR code for the normalized invite URL
         const qrCodeDataUrl = await QRCode.toDataURL(invite.inviteUrl, {
-          width: 200,
-          margin: 2,
-          color: {
-            dark: '#000000',
-            light: '#FFFFFF'
-          }
+          errorCorrectionLevel: 'M',
+          margin: 1,
+          scale: 6,
+          color: { dark: '#111827', light: '#ffffff' }
         });
-        
-        // Store the QR code
+
         const newQRCode: InviteQRCode = {
-          role: role,
+          role,
           url: invite.inviteUrl,
           qrCodeDataUrl
         };
-        
-        setQrCodes(prev => [...prev, newQRCode]);
-        
-        // Copy the invite URL to clipboard
+        setQrCodes(prev => [newQRCode, ...prev].slice(0, 6));
+
         await copyToClipboard(invite.inviteUrl);
         alert(`✅ ${role} invite created and copied to clipboard! QR code generated below.`);
-        
-        // Reload team data to show updated counts
-        setTimeout(() => {
-          loadTeamData();
-        }, 1000);
       }
     } catch (error) {
+      console.error('Error creating invite:', error);
       alert(`❌ Error creating invite: ${(error as Error).message}`);
     }
   };
@@ -999,11 +1019,11 @@ function TeamManagement() {
   }
 
   return (
-    <div className="p-6 space-y-8">
+    <div className="p-3 sm:p-6 space-y-6 sm:space-y-8">
       {/* Header */}
-      <div className="space-y-4">
-        <div className="flex items-center space-x-3">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white font-ethnocentric">Your Team</h1>
+      <div className="space-y-3 sm:space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-3">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white font-ethnocentric">Your Team</h1>
           <div className="relative group">
             <button className="w-6 h-6 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 rounded-full flex items-center justify-center transition-colors duration-200">
               <span className="text-gray-600 dark:text-gray-400 text-sm font-bold">?</span>
@@ -1045,38 +1065,40 @@ function TeamManagement() {
             </div>
           </div>
         </div>
-        <p className="text-gray-600 dark:text-gray-400">
+        <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400">
           Manage your team members and invite new Staff and Athletes
         </p>
       </div>
 
       {/* Team Name Section - PRO Users */}
-      <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+      <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3 sm:p-4 border border-gray-200 dark:border-gray-700">
         <div className="flex flex-col items-center text-center space-y-3">
           <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Your Team Name:</span>
           {isEditingTeamName ? (
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-2">
               <input
                 type="text"
                 value={editingTeamName}
                 onChange={(e) => setEditingTeamName(e.target.value)}
-                className="px-3 py-1 text-lg font-semibold text-gray-900 dark:text-white bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                className="px-3 py-1 text-base sm:text-lg font-semibold text-gray-900 dark:text-white bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 w-full sm:w-auto"
                 placeholder="Enter team name"
                 maxLength={30}
                 autoFocus
               />
-              <button
-                onClick={saveTeamName}
-                className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
-              >
-                Save
-              </button>
-              <button
-                onClick={cancelEditingTeamName}
-                className="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
-              >
-                Cancel
-              </button>
+              <div className="flex space-x-2">
+                <button
+                  onClick={saveTeamName}
+                  className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={cancelEditingTeamName}
+                  className="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           ) : (
             <div className="flex items-center space-x-2">

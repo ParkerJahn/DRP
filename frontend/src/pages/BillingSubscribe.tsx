@@ -39,8 +39,10 @@ const BillingSubscribe: React.FC = () => {
       return;
     }
     
-    // Don't redirect if user has free access activated
+    // If user has free access activated, automatically redirect to dashboard
     if (freeAccessStatus.isActive) {
+      console.log('✅ FREE ACCESS: User has free access, redirecting to dashboard...');
+      window.location.href = '/app/dashboard';
       return;
     }
     
@@ -64,6 +66,7 @@ const BillingSubscribe: React.FC = () => {
         const userRef = doc(db, 'users', user.uid);
         await updateDoc(userRef, {
           proStatus: 'active',
+          proId: user.uid, // Set proId to their own UID so they appear in team members
           updatedAt: serverTimestamp()
         });
 

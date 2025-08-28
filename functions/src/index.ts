@@ -9,8 +9,9 @@
 
 import {setGlobalOptions} from "firebase-functions";
 import {onRequest, onCall} from "firebase-functions/v2/https";
+import {onDocumentUpdated} from "firebase-functions/v2/firestore";
 
-import * as logger from "firebase-functions/logger";
+import {logger} from "firebase-functions";
 import {initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
 import {getFirestore} from "firebase-admin/firestore";
@@ -57,6 +58,28 @@ async function verifyFirebaseToken(authHeader: string): Promise<string> {
   } catch (error) {
     logger.error('Failed to verify Firebase token:', error);
     throw new Error('Invalid authorization token');
+  }
+}
+
+// Helper function to ensure PRO users always have proId set to their uid
+async function ensureProUserConsistency(userId: string): Promise<void> {
+  try {
+    // Update user document to ensure proId is set to their uid
+    await db.collection('users').doc(userId).update({
+      proId: userId,
+      updatedAt: new Date()
+    });
+
+    // Update custom claims to ensure consistency
+    await getAuth().setCustomUserClaims(userId, {
+      role: 'PRO',
+      proId: userId
+    });
+
+    logger.info('✅ Ensured PRO user consistency for:', userId);
+  } catch (error) {
+    logger.error('❌ Error ensuring PRO user consistency for:', userId, error);
+    throw error;
   }
 }
 
@@ -536,11 +559,8 @@ export const stripeWebhook = onRequest({
             updatedAt: new Date()
           });
 
-          // Set custom claims for role-based access
-          await getAuth().setCustomUserClaims(userId, {
-            role: 'PRO',
-            proId: userId
-          });
+          // Ensure PRO user consistency (proId and custom claims)
+          await ensureProUserConsistency(userId);
 
           // Create team document
           await db.collection('teams').doc(userId).set({
@@ -1286,6 +1306,273 @@ export const cleanupOrphanedUsers = onCall({ maxInstances: 10 }, async (request)
   } catch (error) {
     logger.error('Error cleaning up orphaned user:', error);
     throw new Error(error instanceof Error ? error.message : 'Failed to clean up orphaned user');
+  }
+});
+
+// Automatically fix PRO users who don't have proId set
+export const autoFixProUsers = onRequest({
+  cors: true,
+  maxInstances: 5,
+  memory: '256MiB',
+  timeoutSeconds: 30
+}, async (request, response) => {
+  // Handle CORS preflight
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set('Access-Control-Allow-Methods', 'POST');
+  response.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  if (request.method === 'OPTIONS') {
+    response.status(204).send('');
+    return;
+  }
+
+  try {
+    // Verify user is authenticated and is PRO
+    const userId = await verifyFirebaseToken(request.headers.authorization || '');
+    
+    // Check if user is PRO
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists || userDoc.data()?.role !== 'PRO') {
+      response.status(403).json({ error: 'Only PRO users can call this function' });
+      return;
+    }
+    
+    logger.info('Auto-fixing PRO users for:', userId);
+    
+    // Find all PRO users
+    const proUsersQuery = await db.collection('users')
+      .where('role', '==', 'PRO')
+      .get();
+    
+    const fixedUsers: string[] = [];
+    const alreadyFixedUsers: string[] = [];
+    
+    for (const doc of proUsersQuery.docs) {
+      const uid = doc.id;
+      const userData = doc.data();
+      
+      // Check if proId is missing, null, undefined, or doesn't match uid
+      const needsFix = !userData.proId || 
+                      userData.proId === null || 
+                      userData.proId === undefined || 
+                      userData.proId !== uid;
+      
+      if (needsFix) {
+        // Set proId to their own UID
+        await db.collection('users').doc(uid).update({
+          proId: uid,
+          updatedAt: new Date()
+        });
+        
+        // Update their custom claims
+        await getAuth().setCustomUserClaims(uid, {
+          role: 'PRO',
+          proId: uid
+        });
+        
+        fixedUsers.push(uid);
+        logger.info('Auto-fixed PRO user:', uid);
+      } else {
+        alreadyFixedUsers.push(uid);
+        logger.info('PRO user already has correct proId:', uid);
+      }
+    }
+    
+    logger.info('Auto-fixed PRO users:', fixedUsers);
+    logger.info('Already fixed PRO users:', alreadyFixedUsers);
+    
+    response.status(200).json({ 
+      success: true, 
+      message: `Auto-fixed ${fixedUsers.length} PRO users, ${alreadyFixedUsers.length} already correct`,
+      fixedUsers,
+      alreadyFixedUsers,
+      totalProUsers: fixedUsers.length + alreadyFixedUsers.length
+    });
+    
+  } catch (error) {
+    logger.error('Error auto-fixing PRO users:', error);
+    response.status(500).json({ error: 'Failed to auto-fix PRO users' });
+  }
+});
+
+// Enhanced function to fix existing PRO user proId field
+export const fixExistingProUser = onRequest({
+  cors: true,
+  maxInstances: 5,
+  memory: '256MiB',
+  timeoutSeconds: 30
+}, async (request, response) => {
+  // Handle CORS preflight
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set('Access-Control-Allow-Methods', 'POST');
+  response.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  if (request.method === 'OPTIONS') {
+    response.status(204).send('');
+    return;
+  }
+
+  try {
+    // Verify user is authenticated and is PRO
+    const userId = await verifyFirebaseToken(request.headers.authorization || '');
+    
+    // Check if user is PRO
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists || userDoc.data()?.role !== 'PRO') {
+      response.status(403).json({ error: 'Only PRO users can call this function' });
+      return;
+    }
+    
+    logger.info('Fixing existing PRO user proId for:', userId);
+    
+    // Update the PRO user to set proId to their own UID
+    await db.collection('users').doc(userId).update({
+      proId: userId,
+      updatedAt: new Date()
+    });
+    
+    // Update their custom claims
+    await getAuth().setCustomUserClaims(userId, {
+      role: 'PRO',
+      proId: userId
+    });
+    
+    logger.info('Successfully fixed PRO user proId for:', userId);
+    
+    response.status(200).json({ 
+      success: true, 
+      message: 'PRO user proId fixed successfully',
+      proId: userId
+    });
+    
+  } catch (error) {
+    logger.error('Error fixing PRO user:', error);
+    response.status(500).json({ error: 'Failed to fix PRO user' });
+  }
+});
+
+// Manually fix specific PRO users by UID
+export const fixSpecificProUsers = onRequest({
+  cors: true,
+  maxInstances: 5,
+  memory: '256MiB',
+  timeoutSeconds: 30
+}, async (request, response) => {
+  // Handle CORS preflight
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set('Access-Control-Allow-Methods', 'POST');
+  response.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  if (request.method === 'OPTIONS') {
+    response.status(204).send('');
+    return;
+  }
+
+  try {
+    // Verify user is authenticated and is PRO
+    const userId = await verifyFirebaseToken(request.headers.authorization || '');
+    
+    // Check if user is PRO
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists || userDoc.data()?.role !== 'PRO') {
+      response.status(403).json({ error: 'Only PRO users can call this function' });
+      return;
+    }
+    
+    const { userUids } = request.body;
+    
+    if (!userUids || !Array.isArray(userUids)) {
+      response.status(400).json({ error: 'userUids array is required' });
+      return;
+    }
+    
+    logger.info('Fixing specific PRO users:', userUids);
+    
+    const fixedUsers: string[] = [];
+    const failedUsers: string[] = [];
+    
+    for (const uid of userUids) {
+      try {
+        // Check if user exists and is PRO
+        const userDoc = await db.collection('users').doc(uid).get();
+        if (!userDoc.exists) {
+          failedUsers.push(`${uid} (user not found)`);
+          continue;
+        }
+        
+        const userData = userDoc.data();
+        if (userData?.role !== 'PRO') {
+          failedUsers.push(`${uid} (not a PRO user)`);
+          continue;
+        }
+        
+        // Set proId to their own UID
+        await db.collection('users').doc(uid).update({
+          proId: uid,
+          updatedAt: new Date()
+        });
+        
+        // Update their custom claims
+        await getAuth().setCustomUserClaims(uid, {
+          role: 'PRO',
+          proId: uid
+        });
+        
+        fixedUsers.push(uid);
+        logger.info('Fixed specific PRO user:', uid);
+      } catch (error) {
+        logger.error('Error fixing specific PRO user:', uid, error);
+        failedUsers.push(`${uid} (error: ${error})`);
+      }
+    }
+    
+    logger.info('Fixed specific PRO users:', fixedUsers);
+    logger.info('Failed to fix users:', failedUsers);
+    
+    response.status(200).json({ 
+      success: true, 
+      message: `Fixed ${fixedUsers.length} PRO users, ${failedUsers.length} failed`,
+      fixedUsers,
+      failedUsers
+    });
+    
+  } catch (error) {
+    logger.error('Error fixing specific PRO users:', error);
+    response.status(500).json({ error: 'Failed to fix specific PRO users' });
+  }
+});
+
+// Firestore trigger to ensure PRO user consistency
+export const onUserUpdate = onDocumentUpdated('users/{userId}', async (event) => {
+  try {
+    const beforeData = event.data?.before.data();
+    const afterData = event.data?.after.data();
+    
+    if (!beforeData || !afterData) {
+      logger.info('No data available for user update trigger');
+      return;
+    }
+
+    const userId = event.params.userId;
+    
+    // Check if user was upgraded to PRO
+    const wasProBefore = beforeData.role === 'PRO' || beforeData.proStatus === 'active';
+    const isProAfter = afterData.role === 'PRO' || afterData.proStatus === 'active';
+    
+    // If user became PRO, ensure consistency
+    if (!wasProBefore && isProAfter) {
+      logger.info('🔄 User upgraded to PRO, ensuring consistency:', userId);
+      await ensureProUserConsistency(userId);
+    }
+    
+    // If user is PRO but proId doesn't match uid, fix it
+    if (isProAfter && afterData.proId !== userId) {
+      logger.info('🔄 PRO user has incorrect proId, fixing:', userId);
+      await ensureProUserConsistency(userId);
+    }
+    
+  } catch (error) {
+    logger.error('❌ Error in user update trigger:', error);
   }
 });
 

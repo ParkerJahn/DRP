@@ -24,7 +24,7 @@ function Header() {
     const { user, loading } = useAuth();
     const [profile, setProfile] = useState<ProfileData | null>(null);
     const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
-    const [isOpen, setIsOpen] = useState<boolean>(false); // Changed from isDrawerOpen
+    const [isOpen, setIsOpen] = useState<boolean>(false);
     const drawerRef = useRef<HTMLDivElement>(null);
     const navigate = useNavigate();
 
@@ -56,7 +56,7 @@ function Header() {
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (drawerRef.current && !drawerRef.current.contains(event.target as Node)) {
-                setIsOpen(false); // Changed from setIsDrawerOpen
+                setIsOpen(false);
             }
         };
 
@@ -135,6 +135,7 @@ function Header() {
         // ATHLETE users get limited features
         return [
             ...baseItems,
+            { path: '/app/team', label: 'Your Team', icon: 'team' },
             { path: '/app/messages', label: 'Messages', icon: 'messages' },
             { path: '/app/calendar', label: 'Calendar', icon: 'calendar' },
             { path: '/app/programs', label: 'SWEATsheet', icon: 'programs' },
@@ -145,7 +146,42 @@ function Header() {
 
     return (
         <>
-            <div className="flex justify-center items-center relative p-5 bg-white dark:bg-neutral-800">
+            {/* Mobile Header */}
+            <div className="lg:hidden flex justify-between items-center p-3 bg-white dark:bg-neutral-800 border-b border-gray-200 dark:border-gray-700">
+                {/* Mobile Logo */}
+                <img 
+                    className="block dark:hidden w-24 h-16 transition-opacity duration-300" 
+                    src={lightLogo} 
+                    alt="DRP Workshop Light Logo"
+                />
+                <img 
+                    className="hidden dark:block w-24 h-16 transition-opacity duration-300" 
+                    src={darkLogo} 
+                    alt="DRP Workshop Dark Logo"
+                />
+
+                {/* Mobile Menu Button */}
+                {isLoggedIn && (
+                    <button
+                        onClick={() => setIsOpen(true)}
+                        className="w-12 h-12 cursor-pointer flex items-center justify-center p-2 bg-gray-300 dark:bg-black text-black dark:text-white rounded-lg shadow hover:bg-gray-400 dark:hover:bg-gray-700 transition-colors"
+                    >
+                        <Icon type="menu" size="w-6 h-6" />
+                    </button>
+                )}
+
+                {/* Mobile Profile Avatar */}
+                {isLoggedIn && profile && (
+                    <a href="/profile" className="cursor-pointer hover:scale-105 transition-transform duration-200">
+                        <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                            {profile.first_name?.[0]}{profile.last_name?.[0]}
+                        </div>
+                    </a>
+                )}
+            </div>
+
+            {/* Desktop Header */}
+            <div className="hidden lg:flex justify-center items-center relative p-5 bg-white dark:bg-neutral-800">
                 {/* Profile Avatar */}
                 {isLoggedIn && profile && (
                     <a href="/profile" className="cursor-pointer hover:scale-105 transition-transform duration-200 absolute right-4">
@@ -171,7 +207,7 @@ function Header() {
                 {isLoggedIn && (
                     <div className="flex ml-10 justify-end items-center relative">
                         <button
-                            onClick={() => setIsOpen(true)} // Changed from setIsDrawerOpen
+                            onClick={() => setIsOpen(true)}
                             className="w-15 h-15 cursor-pointer items-center justify-center p-1 bg-gray-300 dark:bg-black text-black dark:text-white rounded shadow hover:bg-gray-400 dark:hover:bg-gray-700 transition-colors"
                         >
                             <Icon type="menu" size="w-10 h-10" />
@@ -183,23 +219,23 @@ function Header() {
                 <div className="animated-line"></div>
             </div>
 
-            {/* Side Drawer */}
-            {isOpen && ( // Changed from isDrawerOpen
+            {/* Responsive Side Drawer */}
+            {isOpen && (
                 <>
                     {/* Overlay */}
                     <div 
                         className="fixed inset-0 bg-black bg-opacity-50 z-40"
-                        onClick={() => setIsOpen(false)} // Changed from setIsDrawerOpen
+                        onClick={() => setIsOpen(false)}
                     />
                     
-                    {/* Drawer */}
+                    {/* Drawer - Responsive width */}
                     <div
                         ref={drawerRef}
-                        className="fixed top-0 left-0 h-full w-64 bg-neutral-200 dark:bg-neutral-800 text-black dark:text-white shadow-lg z-50 transform transition-transform duration-300 ease-in-out flex flex-col"
+                        className="fixed top-0 left-0 h-full w-80 sm:w-96 lg:w-64 bg-neutral-200 dark:bg-neutral-800 text-black dark:text-white shadow-lg z-50 transform transition-transform duration-300 ease-in-out flex flex-col"
                     >
                         {/* Header - Fixed */}
                         <div className="flex justify-between items-center p-4 border-b border-neutral-300 dark:border-neutral-600 flex-shrink-0">
-                            <h2 className="text-lg font-semibold font-ethnocentric">Navigation</h2>
+                            <h2 className="text-lg sm:text-xl font-semibold font-ethnocentric">Navigation</h2>
                             <button
                                 onClick={() => setIsOpen(false)}
                                 className="p-2 hover:bg-neutral-300 dark:hover:bg-neutral-700 rounded transition-colors"
@@ -211,11 +247,11 @@ function Header() {
                         {/* User Info - Fixed */}
                         {user.role && (
                             <div className="p-4 border-b border-neutral-300 dark:border-neutral-600 flex-shrink-0">
-                                <div className="text-sm font-semibold text-blue-800 dark:text-blue-200">
+                                <div className="text-sm sm:text-base font-semibold text-blue-800 dark:text-blue-200">
                                     Role: {user.role}
                                 </div>
                                 {user.proStatus && (
-                                    <div className="text-xs text-blue-600 dark:text-blue-300">
+                                    <div className="text-xs sm:text-sm text-blue-600 dark:text-blue-300">
                                         Status: {user.proStatus}
                                     </div>
                                 )}
@@ -233,7 +269,7 @@ function Header() {
                                             navigate(item.path);
                                             setIsOpen(false);
                                         }}
-                                        className="w-full flex items-center gap-3 p-3 text-left hover:bg-neutral-300 dark:hover:bg-neutral-700 rounded transition-colors"
+                                        className="w-full flex items-center gap-3 p-3 text-left hover:bg-neutral-300 dark:hover:bg-neutral-700 rounded transition-colors text-sm sm:text-base"
                                     >
                                         <Icon type={item.icon} />
                                         <span>{item.label}</span>
@@ -249,7 +285,7 @@ function Header() {
                                     navigate('/app/help');
                                     setIsOpen(false);
                                 }}
-                                className="w-full flex items-center gap-3 p-3 text-left text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900 rounded transition-colors duration-200"
+                                className="w-full flex items-center gap-3 p-3 text-left text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900 rounded transition-colors duration-200 text-sm sm:text-base"
                             >
                                 <Icon type="help" />
                                 <span>Help</span>
@@ -257,7 +293,7 @@ function Header() {
                             
                             <button 
                                 onClick={handleLogout}
-                                className="w-full flex items-center gap-3 p-3 text-left text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900 rounded transition-colors duration-200"
+                                className="w-full flex items-center gap-3 p-3 text-left text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900 rounded transition-colors duration-200 text-sm sm:text-base"
                             >
                                 <Icon type="logout" />
                                 <span>Logout</span>

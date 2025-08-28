@@ -11,24 +11,21 @@ import {
   deleteExerciseFromCategory,
   deleteExerciseCategory,
   type ExerciseCategory,
-  deleteProgram,
-  getProgramTemplatesByPro,
-  createProgramTemplate,
-  assignTemplateToAthlete
+  deleteProgram
 } from '../services/programs';
 import type { Program, ProgramStatus, Phase, User } from '../types';
-import type { ProgramTemplate } from '../services/programs';
+// import type { ProgramTemplate } from '../services/programs';
 import { Timestamp } from 'firebase/firestore';
+import { getDoc, doc } from 'firebase/firestore';
+import { getUsersByRole } from '../services/firebase';
+import { db } from '../config/firebase';
 
 const Programs: React.FC = () => {
   const { user } = useAuth();
   const [newProgramTitle, setNewProgramTitle] = useState('');
   const [newProgramType, setNewProgramType] = useState('Strength Training');
-  const [newProgramPhases, setNewProgramPhases] = useState(4);
   const [isBuildingProgram, setIsBuildingProgram] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState('');
-  const [customizationNotes, setCustomizationNotes] = useState('');
-  const [isAssigningProgram] = useState(false);
+  // const [selectedTemplate, setSelectedTemplate] = useState('');
   const [rowSelections, setRowSelections] = useState<{[key: string]: {category: string, exercise: string, sets: string, reps: {[key: number]: string}, weight: {[key: number]: string}}}>({});
   const [currentPhase, setCurrentPhase] = useState(1);
   const [filter, setFilter] = useState<ProgramStatus | 'all'>('all');
@@ -45,9 +42,7 @@ const Programs: React.FC = () => {
   const [sortBy, setSortBy] = useState<'date' | 'title' | 'status' | 'athlete'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [showCompleted, setShowCompleted] = useState(true);
-  const [autoSave, setAutoSave] = useState(true);
-  const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const [selectedAthletes, setSelectedAthletes] = useState<string[]>([]);
   const [showProgress, setShowProgress] = useState(false);
 
   // Exercise library state
@@ -58,7 +53,11 @@ const Programs: React.FC = () => {
   // Athletes are loaded from Firestore
   const [selectedAthlete, setSelectedAthlete] = useState<string | null>(null);
   const [athletes, setAthletes] = useState<{ uid: string; firstName: string; lastName: string; email: string }[]>([]);
-  const [templates, setTemplates] = useState<{ id: string; title: string }[]>([]);
+  // const [templates, setTemplates] = useState<{ id: string; title: string }[]>([]);
+
+  // Team data for creator information
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
+  const [teamInfo, setTeamInfo] = useState<any>(null);
 
   // Load programs from Firestore
   const loadPrograms = async () => {
@@ -66,35 +65,29 @@ const Programs: React.FC = () => {
     
     try {
       setLoading(true);
-      let result;
+      let programsData: Program[] = [];
       
-      if (user.role === 'ATHLETE') {
-        result = await getProgramsByAthlete(user.uid);
-      } else {
-        result = await getProgramsByPro(user.proId || user.uid);
+      if (user.role === 'PRO' || user.role === 'STAFF') {
+        const result = await getProgramsByPro(user.proId || user.uid);
+        if (result.success) {
+          programsData = result.programs || [];
+        }
+      } else if (user.role === 'ATHLETE') {
+        const result = await getProgramsByAthlete(user.uid);
+        if (result.success) {
+          programsData = result.programs || [];
+        }
       }
       
-      if (result.success) {
-        setPrograms((result.programs || []).map((p: Program) => ({
-          id: p.id,
-          title: p.title,
-          status: p.status,
-          athleteUid: p.athleteUid,
-          phases: p.phases,
-          createdBy: p.createdBy,
-          proId: p.proId,
-          createdAt: p.createdAt,
-          updatedAt: p.updatedAt
-        })));
-      } else {
-        console.error('Error loading programs:', result.error);
-        // Fallback to mock data for development
-        setPrograms(createMockPrograms());
-      }
+      // Ensure all programs have athleteUids array for backward compatibility
+      const normalizedPrograms = programsData.map(program => ({
+        ...program,
+        athleteUids: program.athleteUids || (program.athleteUid ? [program.athleteUid] : [])
+      }));
+      
+      setPrograms(normalizedPrograms);
     } catch (error) {
       console.error('Error loading programs:', error);
-      // Fallback to mock data for development
-      setPrograms(createMockPrograms());
     } finally {
       setLoading(false);
     }
@@ -128,36 +121,90 @@ const Programs: React.FC = () => {
   // Load athletes for Create/Assign dropdown
   const loadAthletes = async () => {
     if (!user) return;
-    const proId = user.proId || user.uid;
+    
     try {
-      const { getUsersByRole } = await import('../services/firebase');
-      const res = await getUsersByRole(proId, 'ATHLETE');
-      if (res.success && Array.isArray(res.users)) {
-        setAthletes(res.users.map((u: User) => ({
-          uid: u.uid,
-          firstName: u.firstName || u.displayName || 'Athlete',
-          lastName: u.lastName || '',
-          email: u.email,
-        })));
+      const result = await getUsersByRole(user.proId || user.uid, 'ATHLETE');
+      if (result.success) {
+        setAthletes(result.users || []);
+      } else {
+        console.error('Error loading athletes:', result.error);
       }
-    } catch (e) {
-      console.error('Error loading athletes:', e);
+    } catch (error) {
+      console.error('Error loading athletes:', error);
+    }
+  };
+
+  const loadTeamData = async () => {
+    if (!user) return;
+    
+    try {
+      // Load team members (staff and athletes)
+      const staffResult = await getUsersByRole(user.proId || user.uid, 'STAFF');
+      const athleteResult = await getUsersByRole(user.proId || user.uid, 'ATHLETE');
+      
+      const allMembers = [
+        ...(staffResult.success ? staffResult.users || [] : []),
+        ...(athleteResult.success ? athleteResult.users || [] : [])
+      ];
+      
+      setTeamMembers(allMembers);
+      
+      // Load team info including PRO user
+      if (user.proId) {
+        try {
+          const teamDoc = await getDoc(doc(db, 'teams', user.proId));
+          if (teamDoc.exists()) {
+            const teamData = teamDoc.data();
+            
+            // Fetch PRO user information
+            let proUserInfo = null;
+            if (teamData.proId) {
+              try {
+                const proUserDoc = await getDoc(doc(db, 'users', teamData.proId));
+                if (proUserDoc.exists()) {
+                  const proUserData = proUserDoc.data();
+                  proUserInfo = {
+                    uid: teamData.proId,
+                    firstName: proUserData.firstName || 'Coach',
+                    lastName: proUserData.lastName || 'User',
+                    email: proUserData.email || '',
+                    role: 'PRO'
+                  };
+                }
+              } catch (error) {
+                console.error('Error fetching PRO user data:', error);
+              }
+            }
+            
+            setTeamInfo({
+              members: allMembers.length,
+              proInfo: proUserInfo,
+              staffCount: allMembers.filter(m => m.role === 'STAFF').length,
+              athleteCount: allMembers.filter(m => m.role === 'ATHLETE').length
+            });
+          }
+        } catch (error) {
+          console.error('Error loading team info:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading team data:', error);
     }
   };
 
   // Load templates from Firestore on mount
-  const loadTemplates = async () => {
-    if (!user) return;
-    try {
-      const proId = user.proId || user.uid;
-      const res = await getProgramTemplatesByPro(proId);
-      if (res.success) {
-        setTemplates((res.templates || []).map((t: ProgramTemplate) => ({ id: t.id, title: t.title })));
-      }
-    } catch (e) {
-      console.error('Error loading templates', e);
-    }
-  };
+  // const loadTemplates = async () => {
+  //   if (!user) return;
+  //   try {
+  //     const proId = user.proId || user.uid;
+  //     const res = await getProgramTemplatesByPro(proId);
+  //     if (res.success) {
+  //       setTemplates((res.templates || []).map((t: ProgramTemplate) => ({ id: t.id, title: t.title })));
+  //     }
+  //   } catch (e) {
+  //     console.error('Error loading templates', e);
+  //   }
+  // };
 
   // Create sample exercise categories for testing
   const createSampleCategories = async () => {
@@ -228,32 +275,89 @@ const Programs: React.FC = () => {
 
   // Helper function to capitalize first letter of each word
   const capitalizeWords = (str: string): string => {
-    return str
-      .toLowerCase()
-      .split(' ')
+    return str.split(' ')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
   };
 
+  const getCreatorInfo = (createdByUid: string) => {
+    // First check if it's the current user
+    if (createdByUid === user?.uid) {
+      return {
+        name: `${user.firstName} ${user.lastName}`,
+        role: user.role,
+        isCurrentUser: true
+      };
+    }
+    
+    // Check if it's a staff member
+    const staffMember = teamMembers?.find(m => m.uid === createdByUid && m.role === 'STAFF');
+    if (staffMember) {
+      return {
+        name: `${staffMember.firstName} ${staffMember.lastName}`,
+        role: 'STAFF',
+        isCurrentUser: false
+      };
+    }
+    
+    // Check if it's an athlete
+    const athlete = athletes.find(a => a.uid === createdByUid);
+    if (athlete) {
+      return {
+        name: `${athlete.firstName} ${athlete.lastName}`,
+        role: 'ATHLETE',
+        isCurrentUser: false
+      };
+    }
+    
+    // Check if it's the PRO user
+    if (teamInfo?.proInfo && teamInfo.proInfo.uid === createdByUid) {
+      return {
+        name: `${teamInfo.proInfo.firstName} ${teamInfo.proInfo.lastName}`,
+        role: 'PRO',
+        isCurrentUser: false
+      };
+    }
+    
+    // Fallback
+    return {
+      name: 'Team Member',
+      role: 'Unknown',
+      isCurrentUser: false
+    };
+  };
+
+  const getRoleBadgeColor = (role: string) => {
+    switch (role) {
+      case 'PRO':
+        return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
+      case 'STAFF':
+        return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
+      case 'ATHLETE':
+        return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+      default:
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
+    }
+  };
+
   // Create new program function
   const handleCreateNewProgram = async () => {
-    if (!user || !selectedAthlete || !newProgramTitle.trim()) return;
+    if (!user || selectedAthletes.length === 0 || !newProgramTitle.trim()) return;
     
     try {
       setIsBuildingProgram(true);
       
-      // Create the program with proper structure and athlete connection
+      // Create the program with proper structure and athlete connections
       const newProgram = {
         proId: user.proId || user.uid,
-        athleteUid: selectedAthlete,
+        athleteUids: selectedAthletes,
         title: capitalizeWords(newProgramTitle.trim()),
         status: 'draft' as ProgramStatus,
         phases: createMockPhases(),
         createdBy: user.uid,
         createdAt: new Date(),
-        updatedAt: new Date(),
-        sharedWithAthlete: false,
-        lastSharedAt: null
+        updatedAt: Timestamp.now(),
+        lastSharedAt: Timestamp.now()
       };
       
       const result = await createProgram(newProgram);
@@ -262,12 +366,17 @@ const Programs: React.FC = () => {
         // Reload programs to show the new one
         await loadPrograms();
         setViewMode('grid');
-        setSelectedAthlete(null);
+        setSelectedAthletes([]);
         setNewProgramTitle('');
         setIsBuildingProgram(false);
         
-        // Show success message
-        alert(`Program "${newProgram.title}" created successfully for ${athletes.find(a => a.uid === selectedAthlete)?.firstName} ${athletes.find(a => a.uid === selectedAthlete)?.lastName}!`);
+        // Show success message with all selected athletes
+        const athleteNames = selectedAthletes.map(uid => {
+          const athlete = athletes.find(a => a.uid === uid);
+          return athlete ? `${athlete.firstName} ${athlete.lastName}` : 'Unknown';
+        }).join(', ');
+        
+        alert(`Program "${newProgram.title}" created successfully for ${athleteNames}!`);
       } else {
         console.error('Error creating program:', result.error);
         alert('Failed to create program. Please try again.');
@@ -280,48 +389,8 @@ const Programs: React.FC = () => {
     }
   };
 
-  // Assign existing program function
-  
-
-  // Create program from template
-  const createProgramFromTemplate = (templateName: string) => {
-    const templates = {
-      'Strength Training Program': {
-        title: 'Strength Training Program',
-        status: 'draft' as ProgramStatus,
-        phases: createMockPhases(),
-        description: 'Focus on building maximum strength with compound movements and progressive overload',
-        focus: 'Compound lifts, progressive overload, strength building',
-        difficulty: 'Intermediate to Advanced',
-      },
-      'Power Development Program': {
-        title: 'Power Development Program',
-        status: 'draft' as ProgramStatus,
-        phases: createMockPhases(),
-        description: 'Explosive movements and Olympic lifts to develop power and athletic performance',
-        focus: 'Olympic lifts, plyometrics, explosive movements',
-        difficulty: 'Advanced',
-      },
-      'Endurance Program': {
-        title: 'Endurance Program',
-        status: 'draft' as ProgramStatus,
-        phases: createMockPhases(),
-        description: 'High-rep training and cardio integration for muscular and cardiovascular endurance',
-        focus: 'High reps, circuit training, cardio integration',
-        difficulty: 'Beginner to Intermediate',
-      },
-      'Recovery Program': {
-        title: 'Recovery Program',
-        status: 'draft' as ProgramStatus,
-        phases: createMockPhases(),
-        description: 'Light training and mobility work to maintain fitness while promoting recovery',
-        focus: 'Mobility, flexibility, light resistance, recovery',
-        difficulty: 'All Levels',
-      },
-    };
-    
-    return templates[templateName as keyof typeof templates] || templates['Strength Training Program'];
-  };
+  // Create program from template (unused)
+  // const createProgramFromTemplate = (templateName: string) => { /* removed */ } 
 
   // Load data when component mounts
   useEffect(() => {
@@ -329,67 +398,59 @@ const Programs: React.FC = () => {
       loadPrograms();
       loadExerciseCategories();
       loadAthletes();
-      loadTemplates();
+      loadTeamData();
+      // loadTemplates();
     }
   }, [user]);
 
   // Enhanced filtering and sorting functions
   const getFilteredAndSortedPrograms = () => {
-    let filtered = [...programs];
-
-    // Search filtering
-    if (searchQuery.trim()) {
-      filtered = filtered.filter(program => 
-        program.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        program.status.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        athletes.find(a => a.uid === program.athleteUid)?.firstName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        athletes.find(a => a.uid === program.athleteUid)?.lastName?.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    }
-
-    // Status filtering
-    if (filter !== 'all') {
-      filtered = filtered.filter(program => program.status === filter);
-    }
-
-    // Show/hide completed
-    if (!showCompleted) {
-      filtered = filtered.filter(program => program.status !== 'archived');
-    }
-
-    // Sorting
-    filtered.sort((a, b) => {
-      let aValue: string | number | Date, bValue: string | number | Date;
+    let filtered = programs.filter(program => {
+      // Status filter
+      if (filter !== 'all' && program.status !== filter) return false;
       
-      switch (sortBy) {
-        case 'date':
-          aValue = a.createdAt?.toDate?.() || new Date(0);
-          bValue = b.createdAt?.toDate?.() || new Date(0);
-          break;
-        case 'title':
-          aValue = a.title.toLowerCase();
-          bValue = b.title.toLowerCase();
-          break;
-        case 'status':
-          aValue = a.status.toLowerCase();
-          bValue = b.status.toLowerCase();
-          break;
-        case 'athlete': {
-          const aAthlete = athletes.find(ath => ath.uid === a.athleteUid);
-          const bAthlete = athletes.find(ath => ath.uid === b.athleteUid);
-          aValue = `${aAthlete?.firstName || ''} ${aAthlete?.lastName || ''}`.toLowerCase();
-          bValue = `${bAthlete?.firstName || ''} ${bAthlete?.lastName || ''}`.toLowerCase();
-          break;
-        }
-        default:
-          aValue = a.createdAt?.toDate?.() || new Date(0);
-          bValue = b.createdAt?.toDate?.() || new Date(0);
+      // Search query filter
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const titleMatch = program.title.toLowerCase().includes(query);
+        const athleteMatch = program.athleteUids?.some(uid => {
+          const athlete = athletes.find(a => a.uid === uid);
+          return athlete && (
+            athlete.firstName.toLowerCase().includes(query) ||
+            athlete.lastName.toLowerCase().includes(query)
+          );
+        }) || false;
+        
+        if (!titleMatch && !athleteMatch) return false;
       }
+      
+      return true;
+    });
 
-      if (sortOrder === 'asc') {
-        return aValue > bValue ? 1 : -1;
-      } else {
-        return aValue < bValue ? 1 : -1;
+    // Sort programs
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'title':
+          return sortOrder === 'asc' 
+            ? a.title.localeCompare(b.title)
+            : b.title.localeCompare(a.title);
+        case 'status':
+          return sortOrder === 'asc'
+            ? a.status.localeCompare(b.status)
+            : b.status.localeCompare(a.status);
+        case 'athlete':
+          const aAthlete = athletes.find(ath => a.athleteUids?.includes(ath.uid));
+          const bAthlete = athletes.find(ath => b.athleteUids?.includes(ath.uid));
+          const aName = aAthlete ? `${aAthlete.firstName} ${aAthlete.lastName}` : '';
+          const bName = bAthlete ? `${bAthlete.firstName} ${bAthlete.lastName}` : '';
+          return sortOrder === 'asc'
+            ? aName.localeCompare(bName)
+            : bName.localeCompare(aName);
+        case 'date':
+        default:
+          const aDate = a.createdAt?.toDate?.() || new Date(0);
+          const bDate = b.createdAt?.toDate?.() || new Date(0);
+          return sortOrder === 'asc' ? aDate.getTime() - bDate.getTime() : bDate.getTime() - aDate.getTime();
       }
     });
 
@@ -397,23 +458,21 @@ const Programs: React.FC = () => {
   };
 
   // Auto-save functionality
-  const autoSaveProgram = async (programId: string, updates: Partial<Program>) => {
-    if (!autoSave || !user) return;
-    
-    try {
-      setIsSaving(true);
-      const result = await updateProgram(programId, updates);
-      if (result.success) {
-        setLastSaved(new Date());
-        // Update local state
-        setPrograms(prev => prev.map(p => p.id === programId ? { ...p, ...updates } : p));
-      }
-    } catch (error) {
-      console.error('Auto-save failed:', error);
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  // const autoSaveProgram = async (programId: string, updates: Partial<Program>) => {
+  //   if (!autoSave || !user) return;
+  //   try {
+  //     setIsSaving(true);
+  //     const result = await updateProgram(programId, updates);
+  //     if (result.success) {
+  //       setLastSaved(new Date());
+  //       setPrograms(prev => prev.map(p => p.id === programId ? { ...p, ...updates } : p));
+  //     }
+  //   } catch (error) {
+  //     console.error('Auto-save failed:', error);
+  //   } finally {
+  //     setIsSaving(false);
+  //   }
+  // };
 
   // Progress tracking
   const getProgramProgress = (program: Program) => {
@@ -434,48 +493,11 @@ const Programs: React.FC = () => {
     return totalExercises > 0 ? Math.round((completedExercises / totalExercises) * 100) : 0;
   };
 
-  const handleSaveCurrentAsTemplate = async () => {
-    if (!user || !selectedProgram) return;
-    try {
-      const proId = user.proId || user.uid;
-      const res = await createProgramTemplate({
-        proId,
-        title: selectedProgram.title,
-        phases: selectedProgram.phases,
-        createdBy: user.uid,
-      } as any);
-      if (res.success) {
-        await loadTemplates();
-        alert('Saved as template successfully.');
-      } else {
-        alert('Failed to save template.');
-      }
-    } catch (e) {
-      console.error('Save template error', e);
-      alert('Failed to save template.');
-    }
-  };
+  // Save current as template (unused)
+  // const handleSaveCurrentAsTemplate = async () => { /* removed */ } 
 
-  const handleAssignTemplate = async () => {
-    if (!user || !selectedAthlete || !selectedTemplate) return;
-    try {
-      const proId = user.proId || user.uid;
-      const res = await assignTemplateToAthlete(selectedTemplate, proId, selectedAthlete, user.uid);
-      if (res.success) {
-        await loadPrograms();
-        setViewMode('grid');
-        setSelectedAthlete(null);
-        setSelectedTemplate('');
-        setCustomizationNotes('');
-        alert('Template assigned successfully.');
-      } else {
-        alert('Failed to assign template.');
-      }
-    } catch (e) {
-      console.error('Assign template error', e);
-      alert('Failed to assign template.');
-    }
-  };
+  // Assign template (unused)
+  // const handleAssignTemplate = async () => { /* removed */ } 
 
   const createMockPhases = (): [Phase, Phase, Phase, Phase] => {
     const phaseNames = ['Phase 1', 'Phase 2', 'Phase 3', 'Phase 4'];
@@ -503,41 +525,43 @@ const Programs: React.FC = () => {
   const createMockPrograms = (): Program[] => {
     return [
       {
-        proId: user?.proId || '',
-        athleteUid: 'athlete1',
+        id: 'program1',
+        proId: 'pro1',
+        athleteUids: ['athlete1'],
         title: 'Strength Training Program',
         status: 'current',
         phases: createMockPhases(),
-        createdBy: user?.uid || '',
-        createdAt: { toDate: () => new Date() } as any,
-        updatedAt: { toDate: () => new Date() } as any
+        createdBy: 'pro1',
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now()
       },
       {
-        proId: user?.proId || '',
-        athleteUid: 'athlete2',
-        title: 'Power Development Program',
-        status: 'current',
+        id: 'program2',
+        proId: 'pro1',
+        athleteUids: ['athlete2'],
+        title: 'Cardio Program',
+        status: 'draft',
         phases: createMockPhases(),
-        createdBy: user?.uid || '',
-        createdAt: { toDate: () => new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } as any,
-        updatedAt: { toDate: () => new Date() } as any
+        createdBy: 'pro1',
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now()
       }
     ];
   };
 
   const canCreateProgram = user?.role === 'PRO' || user?.role === 'STAFF';
-  const canViewExerciseLibrary = user?.role === 'PRO' || user?.role === 'STAFF';
+  // const canViewExerciseLibrary = user?.role === 'PRO' || user?.role === 'STAFF';
 
 
-  const handleProgramSelect = (program: Program) => {
-    setSelectedProgram(program);
-    setViewMode('detail');
-    setCurrentPhase(1);
-  };
+  // const handleProgramSelect = (program: Program) => {
+  //   setSelectedProgram(program);
+  //   setViewMode('detail');
+  //   setCurrentPhase(1);
+  // };
 
-  const handleExerciseLibrary = () => {
-    setViewMode('exercise-library');
-  };
+  // const handleExerciseLibrary = () => {
+  //   setViewMode('exercise-library');
+  // };
 
   const handleAddCategory = async () => {
     if (newCategoryName.trim()) {
@@ -657,48 +681,32 @@ const Programs: React.FC = () => {
     }
   };
 
-  const getCompletionPercentage = (program: Program) => {
-    const totalExercises = program.phases.reduce((total, phase) => 
-      total + phase.blocks.reduce((blockTotal, block) => 
-        blockTotal + block.exercises.length, 0), 0);
-    
-    const completedExercises = program.phases.reduce((total, phase) => 
-      total + phase.blocks.reduce((blockTotal, block) => 
-        blockTotal + block.exercises.filter(ex => (ex as any).completed).length, 0), 0);
-    
-    return totalExercises > 0 ? Math.round((completedExercises / totalExercises) * 100) : 0;
-  };
+  // const getCompletionPercentage = (program: Program) => {
+  //   let total = 0;
+  //   let completed = 0;
+  //   program.phases.forEach(phase => {
+  //     phase.blocks.forEach(block => {
+  //       total += block.exercises.length;
+  //       completed += block.exercises.filter(ex => !!ex.completed).length;
+  //     });
+  //   });
+  //   return total > 0 ? Math.round((completed / total) * 100) : 0;
+  // };
 
   const handleWorkoutCompletion = async (blockIndex: number, exerciseIndex: number, completed: boolean) => {
     if (!selectedProgram) return;
-    
     try {
-      // Update local state immediately for UI responsiveness
       const updatedProgram = { ...selectedProgram };
       const exercise = updatedProgram.phases[currentPhase - 1].blocks[blockIndex].exercises[exerciseIndex];
-      (exercise as any).completed = completed;
-      
-      // Update the program in Firestore
-      const result = await updateProgram(selectedProgram.id || '', {
-        phases: updatedProgram.phases
-      });
-      
+      exercise.completed = completed;
+      const result = await updateProgram(selectedProgram.id || '', { phases: updatedProgram.phases });
       if (result.success) {
-        // Update local state
         setSelectedProgram(updatedProgram);
-        // Update programs list
-        setPrograms(prev => prev.map(p => 
-          p.athleteUid === selectedProgram.athleteUid ? updatedProgram : p
-        ));
-      } else {
-        console.error('Error updating workout completion:', result.error);
-        // Revert local state on error
-        setSelectedProgram(selectedProgram);
+        setPrograms(prev => prev.map(p => p.id === selectedProgram.id ? updatedProgram : p));
       }
     } catch (error) {
-      console.error('Error updating workout completion:', error);
-      // Revert local state on error
-      setSelectedProgram(selectedProgram);
+      console.error('Error updating completion:', error);
+      alert('Failed to update. Please try again.');
     }
   };
 
@@ -747,7 +755,7 @@ const Programs: React.FC = () => {
       if (selections.category) exercise.category = selections.category;
       if (selections.exercise) exercise.name = selections.exercise;
       if (selections.sets) exercise.sets = parseInt(selections.sets) || 0;
-      if (selections.reps) exercise.reps = parseInt(selections.reps) || 0;
+      if (selections.reps && typeof selections.reps === 'string') exercise.reps = parseInt(selections.reps as unknown as string) || 0;
       
       // Clean the program data before saving
       const cleanProgram = cleanProgramData(updatedProgram);
@@ -776,27 +784,39 @@ const Programs: React.FC = () => {
     }
   };
 
-  const handleDeleteProgram = async (program: Program, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    if (!program.id) {
-      alert('Unable to delete: missing program id.');
-      return;
-    }
-    const confirmed = window.confirm(`Are you sure you want to delete "${program.title}"? This cannot be undone.`);
+  const handleDeleteProgram = async (programId: string) => {
+    if (!user || (user.role !== 'PRO' && user.role !== 'STAFF')) return;
+    
+    const program = programs.find(p => p.id === programId);
+    if (!program) return;
+    
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${program.title}"?\n\n` +
+      `This action cannot be undone and will remove the program for all athletes.`
+    );
+    
     if (!confirmed) return;
+    
     try {
-      const res = await deleteProgram(program.id);
-      if (res.success) {
-        setPrograms(prev => prev.filter(p => p.id !== program.id));
-        if (selectedProgram?.id === program.id) {
+      const result = await deleteProgram(programId);
+      
+      if (result.success) {
+        // Remove from local state
+        setPrograms(prev => prev.filter(p => p.id !== programId));
+        
+        // If this was the selected program, clear it
+        if (selectedProgram?.id === programId) {
           setSelectedProgram(null);
+          setViewMode('grid');
         }
+        
+        alert('Program deleted successfully!');
       } else {
-        console.error('Error deleting program:', (res as any).error);
+        console.error('Error deleting program:', result.error);
         alert('Failed to delete program. Please try again.');
       }
-    } catch (err) {
-      console.error('Error deleting program:', err);
+    } catch (error) {
+      console.error('Error deleting program:', error);
       alert('Failed to delete program. Please try again.');
     }
   };
@@ -1087,9 +1107,9 @@ const Programs: React.FC = () => {
                         <div key={index} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded">
                           <span className="text-sm text-gray-900 dark:text-white truncate">{exercise}</span>
                           <button
-                            onClick={() => handleDeleteExercise(category.id, exercise)}
+                            onClick={(e) => e.preventDefault()}
                             className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-xs p-1"
-                            title="Delete Exercise"
+                            title="Delete Exercise (unavailable in this view)"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1131,11 +1151,11 @@ const Programs: React.FC = () => {
                           {category.exercises.map((exercise, index) => (
                             <div key={index} className="flex items-center justify-between p-2 bg-white dark:bg-gray-600 rounded">
                               <span className="text-sm text-gray-900 dark:text-white">{exercise}</span>
-                              <button
-                                onClick={() => handleDeleteExercise(category.id, exercise)}
-                                className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-xs p-1"
-                                title="Delete Exercise"
-                              >
+                                                        <button
+                            onClick={() => handleDeleteExerciseFromCategory(category.id, exercise)}
+                            className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-xs p-1"
+                            title="Delete Exercise"
+                          >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                 </svg>
@@ -1287,8 +1307,41 @@ const Programs: React.FC = () => {
               </p>
               <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500 dark:text-gray-400">
                 <span>Status: <span className="font-medium text-blue-600 dark:text-blue-400">{selectedProgram.status}</span></span>
-                <span>Athlete: <span className="font-medium text-green-600 dark:text-green-400">
-                  {athletes.find(a => a.uid === selectedProgram.athleteUid)?.firstName} {athletes.find(a => a.uid === selectedProgram.athleteUid)?.lastName}
+                <span>Athletes: <span className="font-medium text-green-600 dark:text-green-400">
+                  {(() => {
+                    const programAthletes = selectedProgram.athleteUids?.map(uid => {
+                      const athlete = athletes.find(a => a.uid === uid);
+                      return athlete ? `${athlete.firstName} ${athlete.lastName}` : 'Unknown';
+                    }) || [];
+                    
+                    if (programAthletes.length === 0) {
+                      return 'No athletes assigned';
+                    } else if (programAthletes.length === 1) {
+                      return programAthletes[0];
+                    } else if (programAthletes.length === 2) {
+                      return programAthletes.join(' & ');
+                    } else {
+                      return `${programAthletes.slice(0, -1).join(', ')} & ${programAthletes[programAthletes.length - 1]}`;
+                    }
+                  })()}
+                </span></span>
+                <span>Created by: <span className="font-medium text-purple-600 dark:text-purple-400">
+                  {(() => {
+                    const creatorInfo = getCreatorInfo(selectedProgram.createdBy);
+                    return (
+                      <span className="flex items-center space-x-2">
+                        <span className={creatorInfo.isCurrentUser ? 'text-blue-600 dark:text-blue-400' : ''}>
+                          {creatorInfo.name}
+                        </span>
+                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getRoleBadgeColor(creatorInfo.role)}`}>
+                          {creatorInfo.role}
+                        </span>
+                        {creatorInfo.isCurrentUser && (
+                          <span className="text-blue-600 dark:text-blue-400 text-xs">(You)</span>
+                        )}
+                      </span>
+                    );
+                  })()}
                 </span></span>
               </div>
             </div>
@@ -1300,6 +1353,14 @@ const Programs: React.FC = () => {
               >
                 ← Back to Programs
               </button>
+              {(user?.role === 'PRO' || user?.role === 'STAFF') && (
+                <button
+                  onClick={() => handleDeleteProgram(selectedProgram.id || '')}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                >
+                  🗑️ Delete Program
+                </button>
+              )}
               {canCreateProgram && (
                 <>
                   <button 
@@ -1662,14 +1723,14 @@ const Programs: React.FC = () => {
     const filteredPrograms = getFilteredAndSortedPrograms();
     
     return (
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {/* Enhanced Header with Search and Controls */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white font-ethnocentric">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white font-ethnocentric">
               💪 SWEATsheet Programs
             </h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-2">
+            <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mt-2">
               Manage and track athlete training programs
             </p>
           </div>
@@ -1677,13 +1738,13 @@ const Programs: React.FC = () => {
           <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
             <button
               onClick={() => setViewMode('create-assign')}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors"
+              className="px-4 sm:px-6 py-2 sm:py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors text-sm sm:text-base"
             >
               + Create New Program
             </button>
             <button
               onClick={() => setViewMode('exercise-library')}
-              className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium transition-colors"
+              className="px-4 sm:px-6 py-2 sm:py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium transition-colors text-sm sm:text-base"
             >
               Exercise Library
             </button>
@@ -1691,8 +1752,8 @@ const Programs: React.FC = () => {
         </div>
 
         {/* Enhanced Search and Filter Bar */}
-        <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-3 sm:p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             {/* Search */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1703,7 +1764,7 @@ const Programs: React.FC = () => {
                 placeholder="Search by title, athlete, or status..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
               />
             </div>
 
@@ -1715,7 +1776,7 @@ const Programs: React.FC = () => {
               <select
                 value={filter}
                 onChange={(e) => setFilter(e.target.value as ProgramStatus | 'all')}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
               >
                 <option value="all">All Statuses</option>
                 <option value="current">Current</option>
@@ -1732,7 +1793,7 @@ const Programs: React.FC = () => {
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as 'date' | 'title' | 'status' | 'athlete')}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
               >
                 <option value="date">Date Created</option>
                 <option value="title">Program Title</option>
@@ -1749,7 +1810,7 @@ const Programs: React.FC = () => {
               <select
                 value={sortOrder}
                 onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
               >
                 <option value="desc">Newest First</option>
                 <option value="asc">Oldest First</option>
@@ -1758,8 +1819,8 @@ const Programs: React.FC = () => {
           </div>
 
           {/* Additional Controls */}
-          <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
-            <div className="flex items-center space-x-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-4 pt-4 border-t border-gray-200 dark:border-gray-600 space-y-3 sm:space-y-0">
+            <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
               <label className="flex items-center">
                 <input
                   type="checkbox"
@@ -1772,15 +1833,6 @@ const Programs: React.FC = () => {
               <label className="flex items-center">
                 <input
                   type="checkbox"
-                  checked={autoSave}
-                  onChange={(e) => setAutoSave(e.target.checked)}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Auto-save</span>
-              </label>
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
                   checked={showProgress}
                   onChange={(e) => setShowProgress(e.target.checked)}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -1788,23 +1840,11 @@ const Programs: React.FC = () => {
                 <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Show Progress</span>
               </label>
             </div>
-
-            {isSaving && (
-              <div className="flex items-center text-sm text-blue-600 dark:text-blue-400">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                Saving...
-              </div>
-            )}
-            {lastSaved && (
-              <div className="text-sm text-gray-500 dark:text-gray-400">
-                Last saved: {lastSaved.toLocaleTimeString()}
-              </div>
-            )}
           </div>
         </div>
 
         {/* Programs Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
           {filteredPrograms.map((program) => {
             const athlete = athletes.find(a => a.uid === program.athleteUid);
             const progress = getProgramProgress(program);
@@ -1819,12 +1859,12 @@ const Programs: React.FC = () => {
                 }}
               >
                 {/* Program Header */}
-                <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+                <div className="p-3 sm:p-6 border-b border-gray-200 dark:border-gray-700">
                   <div className="flex items-start justify-between mb-3">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white line-clamp-2">
+                    <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white line-clamp-2 flex-1 mr-2">
                       {program.title}
                     </h3>
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                    <span className={`px-2 py-1 text-xs font-medium rounded-full flex-shrink-0 ${
                       program.status === 'current' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
                       program.status === 'draft' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
                       'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
@@ -1833,14 +1873,51 @@ const Programs: React.FC = () => {
                     </span>
                   </div>
                   
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                    Athlete: {athlete ? `${athlete.firstName} ${athlete.lastName}` : 'Unknown'}
+                  <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mb-3">
+                    Athletes: {(() => {
+                      const programAthletes = program.athleteUids?.map(uid => {
+                        const athlete = athletes.find(a => a.uid === uid);
+                        return athlete ? `${athlete.firstName} ${athlete.lastName}` : 'Unknown';
+                      }) || [];
+                      
+                      if (programAthletes.length === 0) {
+                        return 'No athletes assigned';
+                      } else if (programAthletes.length === 1) {
+                        return programAthletes[0];
+                      } else if (programAthletes.length === 2) {
+                        return programAthletes.join(' & ');
+                      } else {
+                        return `${programAthletes.slice(0, -1).join(', ')} & ${programAthletes[programAthletes.length - 1]}`;
+                      }
+                    })()}
+                  </p>
+
+                  {/* Creator Information */}
+                  <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mb-3">
+                    Created by: {program.createdBy ? (
+                      (() => {
+                        const creatorInfo = getCreatorInfo(program.createdBy);
+                        return (
+                          <span className="flex items-center space-x-2">
+                            <span className={creatorInfo.isCurrentUser ? 'font-medium text-blue-600 dark:text-blue-400' : ''}>
+                              {creatorInfo.name}
+                            </span>
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${getRoleBadgeColor(creatorInfo.role)}`}>
+                              {creatorInfo.role}
+                            </span>
+                            {creatorInfo.isCurrentUser && (
+                              <span className="text-blue-600 dark:text-blue-400 text-xs">(You)</span>
+                            )}
+                          </span>
+                        );
+                      })()
+                    ) : 'Unknown'}
                   </p>
 
                   {/* Progress Bar */}
                   {showProgress && (
                     <div className="mb-3">
-                      <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 mb-1">
+                      <div className="flex items-center justify-between text-xs sm:text-sm text-gray-600 dark:text-gray-400 mb-1">
                         <span>Progress</span>
                         <span>{progress}%</span>
                       </div>
@@ -1878,16 +1955,30 @@ const Programs: React.FC = () => {
                     <span>
                       Created: {program.createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown'}
                     </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedProgram(program);
-                        setViewMode('detail');
-                      }}
-                      className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
-                    >
-                      View Details
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      {(user?.role === 'PRO' || user?.role === 'STAFF') && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteProgram(program.id || '');
+                          }}
+                          className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                          title="Delete Program"
+                        >
+                          🗑️
+                        </button>
+                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedProgram(program);
+                          setViewMode('detail');
+                        }}
+                        className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                      >
+                        View Details
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1939,27 +2030,61 @@ const Programs: React.FC = () => {
 
         {/* Athlete Selection - Most Important First */}
         <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">1. Select Athlete</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">1. Select Athletes</h3>
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
+            Select one or more athletes for this program. You can create the same program for multiple athletes at once.
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {athletes.map((athlete) => (
               <button
                 key={athlete.uid}
-                onClick={() => setSelectedAthlete(athlete.uid)}
+                onClick={() => {
+                  setSelectedAthletes(prev => {
+                    if (prev.includes(athlete.uid)) {
+                      return prev.filter(uid => uid !== athlete.uid);
+                    } else {
+                      return [...prev, athlete.uid];
+                    }
+                  });
+                }}
                 className={`p-4 rounded-lg border-2 transition-all duration-200 text-left ${
-                  selectedAthlete === athlete.uid
+                  selectedAthletes.includes(athlete.uid)
                     ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                     : 'border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-600'
                 }`}
               >
-                <div className="font-medium text-gray-900 dark:text-white">
-                  {athlete.firstName} {athlete.lastName}
-                </div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">
-                  {athlete.email}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-gray-900 dark:text-white">
+                      {athlete.firstName} {athlete.lastName}
+                    </div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                      {athlete.email}
+                    </div>
+                  </div>
+                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                    selectedAthletes.includes(athlete.uid)
+                      ? 'border-blue-500 bg-blue-500 text-white'
+                      : 'border-gray-300 dark:border-gray-600'
+                  }`}>
+                    {selectedAthletes.includes(athlete.uid) && '✓'}
+                  </div>
                 </div>
               </button>
             ))}
           </div>
+          {selectedAthletes.length > 0 && (
+            <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+              <p className="text-sm text-blue-800 dark:text-blue-200">
+                Selected {selectedAthletes.length} athlete{selectedAthletes.length !== 1 ? 's' : ''}: {
+                  selectedAthletes.map(uid => {
+                    const athlete = athletes.find(a => a.uid === uid);
+                    return athlete ? `${athlete.firstName} ${athlete.lastName}` : 'Unknown';
+                  }).join(', ')
+                }
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Program Details - Simplified Form */}
@@ -2123,9 +2248,6 @@ const Programs: React.FC = () => {
         [field]: value
       }
     }));
-    
-    // Auto-save after a short delay
-    setTimeout(() => saveExerciseSelections(blockIndex, exerciseIndex), 500);
   };
 
   const handleAddBlockToPhase = (phaseNumber: number) => {
@@ -2143,9 +2265,6 @@ const Programs: React.FC = () => {
     
     // Update program
     setSelectedProgram(updatedProgram);
-    
-    // Save to Firestore
-    handleSaveProgram();
   };
 
   const handleAddExerciseToBlock = (blockIndex: number) => {
@@ -2169,9 +2288,6 @@ const Programs: React.FC = () => {
     
     // Update program
     setSelectedProgram(updatedProgram);
-    
-    // Save to Firestore
-    handleSaveProgram();
   };
 
   const handleDeleteBlock = (blockIndex: number) => {
@@ -2200,9 +2316,6 @@ const Programs: React.FC = () => {
       // Update program
       setSelectedProgram(cleanProgram);
       
-      // Save to Firestore
-      handleSaveProgram();
-      
       alert(`Block "${block.muscleGroup}" deleted successfully!`);
     } catch (error) {
       console.error('Error deleting block:', error);
@@ -2226,7 +2339,8 @@ const Programs: React.FC = () => {
       
       // Save to Firestore
       const result = await updateProgram(selectedProgram.id || '', {
-        phases: updatedProgram.phases
+        phases: updatedProgram.phases,
+        updatedAt: Timestamp.now()
       });
       
       if (result.success) {
@@ -2261,7 +2375,7 @@ const Programs: React.FC = () => {
       
       const result = await updateProgram(selectedProgram.id || '', {
         phases: cleanProgram.phases,
-        updatedAt: new Date()
+        updatedAt: Timestamp.now()
       });
       
       if (result.success) {
@@ -2289,32 +2403,24 @@ const Programs: React.FC = () => {
     if (!selectedProgram) return;
     
     try {
-      // Update program status to shared
-      const updatedProgram = { ...selectedProgram, status: 'shared' as any };
+      // Share with all athletes assigned to the program
+      const athleteUids = selectedProgram.athleteUids || [];
       
-      const result = await updateProgram(selectedProgram.id || '', {
-        status: 'shared',
-        sharedAt: new Date(),
-        sharedWithAthlete: true,
-        lastSharedAt: new Date()
+      for (const athleteUid of athleteUids) {
+        await notifyAthleteOfNewProgram(athleteUid, selectedProgram.title);
+      }
+      
+      // Update last shared timestamp
+      await updateProgram(selectedProgram.id || '', {
+        updatedAt: Timestamp.now()
       });
       
-      if (result.success) {
-        // Update local state
-        setSelectedProgram(updatedProgram);
-        setPrograms(prev => prev.map(p => 
-          p.id === selectedProgram.id ? updatedProgram : p
-        ));
-        
-        // Send notification to athlete (this would integrate with your notification system)
-        await notifyAthleteOfNewProgram(selectedProgram.athleteUid, selectedProgram.title);
-        
-        // Show success message
-        alert(`Program shared successfully with ${athletes.find(a => a.uid === selectedProgram.athleteUid)?.firstName} ${athletes.find(a => a.uid === selectedProgram.athleteUid)?.lastName}! The athlete has been notified.`);
-      } else {
-        console.error('Error sharing program:', result.error);
-        alert('Failed to share program. Please try again.');
-      }
+      const athleteNames = athleteUids.map(uid => {
+        const athlete = athletes.find(a => a.uid === uid);
+        return athlete ? `${athlete.firstName} ${athlete.lastName}` : 'Unknown';
+      }).join(', ');
+      
+      alert(`Program shared successfully with ${athleteNames}! All athletes have been notified.`);
     } catch (error) {
       console.error('Error sharing program:', error);
       alert('Failed to share program. Please try again.');
@@ -2434,11 +2540,6 @@ const Programs: React.FC = () => {
     // Clean and save
     const cleanProgram = cleanProgramData(updatedProgram);
     setSelectedProgram(cleanProgram);
-    
-    // Auto-save after a short delay
-    setTimeout(() => {
-      handleSaveProgram();
-    }, 1000);
   };
 
   const handleSetRestChange = (blockIndex: number, exerciseIndex: number, setIndex: number, restSec: string) => {
@@ -2465,11 +2566,6 @@ const Programs: React.FC = () => {
     // Clean and save
     const cleanProgram = cleanProgramData(updatedProgram);
     setSelectedProgram(cleanProgram);
-    
-    // Auto-save after a short delay
-    setTimeout(() => {
-      handleSaveProgram();
-    }, 1000);
   };
 
   const handleSetCompletionChange = (blockIndex: number, exerciseIndex: number, setIndex: number, completed: boolean) => {
@@ -2496,11 +2592,6 @@ const Programs: React.FC = () => {
     // Clean and save
     const cleanProgram = cleanProgramData(updatedProgram);
     setSelectedProgram(cleanProgram);
-    
-    // Auto-save after a short delay
-    setTimeout(() => {
-      handleSaveProgram();
-    }, 1000);
   };
 
   const handleSetNotesChange = (blockIndex: number, exerciseIndex: number, setIndex: number, notes: string) => {
@@ -2527,11 +2618,6 @@ const Programs: React.FC = () => {
     // Clean and save
     const cleanProgram = cleanProgramData(updatedProgram);
     setSelectedProgram(cleanProgram);
-    
-    // Auto-save after a short delay
-    setTimeout(() => {
-      handleSaveProgram();
-    }, 1000);
   };
 
   const handleSetRepsChange = (blockIndex: number, exerciseIndex: number, setIndex: number, reps: string) => {
@@ -2558,11 +2644,6 @@ const Programs: React.FC = () => {
     // Clean and save
     const cleanProgram = cleanProgramData(updatedProgram);
     setSelectedProgram(cleanProgram);
-    
-    // Auto-save after a short delay
-    setTimeout(() => {
-      handleSaveProgram();
-    }, 1000);
   };
 
   const handleBlockNameChange = (blockIndex: number, newName: string) => {
@@ -2578,11 +2659,6 @@ const Programs: React.FC = () => {
     // Clean and save
     const cleanProgram = cleanProgramData(updatedProgram);
     setSelectedProgram(cleanProgram);
-    
-    // Auto-save after a short delay
-    setTimeout(() => {
-      handleSaveProgram();
-    }, 1000);
   };
 
   const [editingBlockName, setEditingBlockName] = useState<{ blockIndex: number; currentName: string } | null>(null);
@@ -2667,6 +2743,23 @@ const Programs: React.FC = () => {
     );
   };
 
+  const handleDeleteExerciseFromCategory = async (categoryId: string, exerciseName: string) => {
+    try {
+      const res = await deleteExerciseFromCategory(categoryId, exerciseName);
+      if (res.success) {
+        setExerciseCategories(prev => prev.map(cat =>
+          cat.id === categoryId ? { ...cat, exercises: cat.exercises.filter(e => e !== exerciseName) } : cat
+        ));
+      } else {
+        console.error('Failed to delete exercise from category', res.error);
+        alert('Failed to delete exercise from category');
+      }
+    } catch (e) {
+      console.error('Delete exercise error', e);
+      alert('Failed to delete exercise from category');
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -2679,7 +2772,7 @@ const Programs: React.FC = () => {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8">
       {viewMode === 'grid' && renderProgramsGrid()}
       {viewMode === 'detail' && renderSweatSheetDetail()}
       {viewMode === 'create-assign' && renderCreateAssignProgram()}

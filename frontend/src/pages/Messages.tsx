@@ -309,14 +309,14 @@ const Messages: React.FC = () => {
   }
 
   return (
-    <div className="max-w-6xl mx-auto h-[calc(100vh-200px)]">
-      <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-lg h-full flex">
+    <div className="max-w-6xl mx-auto h-[calc(100vh-200px)] px-2 sm:px-4">
+      <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-lg h-full flex flex-col lg:flex-row">
         {/* Chat List Sidebar */}
-        <div className="w-80 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+        <div className="w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-gray-700 flex flex-col">
           {/* Header */}
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="p-3 sm:p-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex justify-between items-center">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white font-ethnocentric">Messages</h2>
+              <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white font-ethnocentric">Messages</h2>
               {canCreateChat && (
                 <button
                   onClick={() => setIsCreatingChat(true)}
@@ -332,18 +332,18 @@ const Messages: React.FC = () => {
           {/* Chat List */}
           <div className="flex-1 overflow-y-auto">
             {loading ? (
-              <div className="p-4 text-center text-gray-500 dark:text-gray-400">
+              <div className="p-3 sm:p-4 text-center text-gray-500 dark:text-gray-400">
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600 mx-auto mb-2"></div>
                 Loading chats...
               </div>
             ) : chats.length === 0 ? (
-              <div className="p-4 text-center text-gray-500 dark:text-gray-400">
-                <div className="text-4xl mb-2">💬</div>
-                <p className="mb-2">No chats yet</p>
+              <div className="p-3 sm:p-4 text-center text-gray-500 dark:text-gray-400">
+                <div className="text-3xl sm:text-4xl mb-2">💬</div>
+                <p className="mb-2 text-sm sm:text-base">No chats yet</p>
                 {canCreateChat && (
                   <button
                     onClick={() => setIsCreatingChat(true)}
-                    className="text-indigo-600 hover:text-indigo-700 font-medium"
+                    className="text-indigo-600 hover:text-indigo-700 font-medium text-sm sm:text-base"
                   >
                     Start your first chat
                   </button>
@@ -354,7 +354,7 @@ const Messages: React.FC = () => {
                 <div
                   key={chat.id}
                   onClick={() => setSelectedChat(chat)}
-                  className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors ${
+                  className={`p-3 sm:p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors ${
                     selectedChat?.id === chat.id ? 'bg-indigo-50 dark:bg-indigo-900' : ''
                   }`}
                 >
@@ -366,7 +366,7 @@ const Messages: React.FC = () => {
                         </p>
                       </div>
                       {chat.lastMessage && (
-                        <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                        <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 truncate">
                           {chat.lastMessage.text}
                         </p>
                       )}
@@ -394,7 +394,7 @@ const Messages: React.FC = () => {
           {selectedChat ? (
             <>
               {/* Chat Header */}
-              <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+              <div className="p-3 sm:p-4 border-b border-gray-200 dark:border-gray-700">
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">

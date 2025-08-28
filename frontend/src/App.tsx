@@ -14,7 +14,9 @@ import { Dashboard } from './components/Dashboard';
 import TeamManagement from './components/TeamManagement';
 import Profile from './pages/Profile';
 import MandatoryPasswordChange from './components/MandatoryPasswordChange';
+import AthleteTeam from './pages/AthleteTeam';
 import { lazy, Suspense } from 'react';
+import { HelmetProvider } from 'react-helmet-async';
 const Messages = lazy(() => import('./pages/Messages'));
 const Calendar = lazy(() => import('./pages/Calendar'));
 const Programs = lazy(() => import('./pages/Programs'));
@@ -26,11 +28,13 @@ import darkLogo from '/darkmodelogo.png';
 // Main App Component
 function App() {
   return (
-    <AuthProvider>
-      <Suspense fallback={<div className="p-6 text-gray-600 dark:text-gray-300">Loading…</div>}>
-        <AppContent />
-      </Suspense>
-    </AuthProvider>
+    <HelmetProvider>
+      <AuthProvider>
+        <Suspense fallback={<div className="p-6 text-gray-600 dark:text-gray-300">Loading…</div>}>
+          <AppContent />
+        </Suspense>
+      </AuthProvider>
+    </HelmetProvider>
   );
 }
 
@@ -77,7 +81,7 @@ function AppContent() {
   if (user) {
     // If user is PRO but not active, show billing page
     if (role === 'PRO' && proStatus !== 'active') {
-      return <BillingSubscribe onBackToDashboard={() => window.location.reload()} />;
+      return <BillingSubscribe />;
     }
 
     // Show main app
@@ -91,10 +95,12 @@ function AppContent() {
           <Route path="/app/password-change-required" element={<MandatoryPasswordChange />} />
           <Route path="/app/messages" element={<Messages />} />
           <Route path="/app/calendar" element={<Calendar />} />
-          {(role === 'PRO' || role === 'ATHLETE') && (
+          {(role === 'PRO' || role === 'STAFF' || role === 'ATHLETE') && (
             <Route path="/app/programs" element={<Programs />} />
           )}
-          <Route path="/app/team" element={<TeamManagement />} />
+          <Route path="/app/team" element={
+            role === 'PRO' ? <TeamManagement /> : <AthleteTeam />
+          } />
           {(role === 'PRO' || role === 'ATHLETE' || role === 'STAFF') && (
             <>
               <Route path="/app/payments" element={<Payments />} />

@@ -1,10 +1,35 @@
 import React from 'react';
 import { ROUTES } from '../config/routes';
 import darkLogo from '/darkmodelogo.png';
+import SEO from '../components/SEO';
 
 const About: React.FC = () => {
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@type": "AboutPage",
+    "name": "About DRP Workshop",
+    "description": "Learn about DRP Workshop's mission to transform how coaches, staff, and athletes work together to achieve extraordinary results.",
+    "url": "https://drpworkshop.com/about",
+    "mainEntity": {
+      "@type": "Organization",
+      "name": "DRP Workshop",
+      "description": "Comprehensive coaching platform for athletes and coaches",
+      "foundingDate": "2024",
+      "mission": "To provide coaches and athletes with the most intuitive, powerful, and reliable platform for building stronger teams and achieving peak performance"
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-900">
+    <>
+      <SEO
+        title="About DRP Workshop"
+        description="Learn about DRP Workshop's mission to transform how coaches, staff, and athletes work together to achieve extraordinary results. Discover our story, values, and commitment to coaching excellence."
+        keywords="about DRP Workshop, coaching platform mission, team management software, athlete coaching tools, coaching excellence, sports technology"
+        url="/about"
+        structuredData={structuredData}
+      />
+      
+      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-900">
       {/* Navigation */}
       <nav className="px-6 py-4 flex justify-between items-start relative">
         {/* Left: DRP Workshop Text */}
@@ -160,6 +185,7 @@ const About: React.FC = () => {
         </div>
       </footer>
     </div>
+    </>
   );
 };
 

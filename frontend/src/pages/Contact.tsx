@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { validateName, validateEmail, validateTextContent, sanitizeText } from '../utils/validation';
 import { ROUTES } from '../config/routes';
 import darkLogo from '/darkmodelogo.png';
+import SEO from '../components/SEO';
 
 const Contact: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -14,6 +15,20 @@ const Contact: React.FC = () => {
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@type": "ContactPage",
+    "name": "Contact DRP Workshop",
+    "description": "Get in touch with DRP Workshop for support, questions, or to schedule a demo of our coaching platform.",
+    "url": "https://drpworkshop.com/contact",
+    "mainEntity": {
+      "@type": "Organization",
+      "name": "DRP Workshop",
+      "contactType": "customer service",
+      "url": "https://drpworkshop.com"
+    }
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -139,7 +154,16 @@ const Contact: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-900">
+    <>
+      <SEO
+        title="Contact - DRP Workshop"
+        description="Get in touch with DRP Workshop for support, questions, or to schedule a demo of our coaching platform. We're here to help you get started."
+        keywords="contact DRP Workshop, coaching platform support, team management help, workout software demo, athlete coaching support, DRP Workshop contact"
+        url="/contact"
+        structuredData={structuredData}
+      />
+      
+      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-900">
       {/* Navigation */}
       <nav className="px-6 py-4 flex justify-between items-start relative">
         {/* Left: DRP Workshop Text */}
@@ -467,6 +491,7 @@ const Contact: React.FC = () => {
         </div>
       </footer>
     </div>
+    </>
   );
 };
 

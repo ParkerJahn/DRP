@@ -49,9 +49,11 @@ const FreeAccessActivation: React.FC<FreeAccessActivationProps> = ({ onClose, on
         setSuccess(true);
         setCurrentStatus(getFreeAccessStatus());
         
-        // Call the success callback
+        // Call the success callback and automatically activate PRO account
         setTimeout(() => {
           onActivated();
+          // Automatically trigger PRO activation after free access is activated
+          handleAutoActivatePro();
         }, 2000);
       } else {
         setError('Invalid free access code. Please try again.');
@@ -61,6 +63,37 @@ const FreeAccessActivation: React.FC<FreeAccessActivationProps> = ({ onClose, on
       console.error('Free access activation error:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Function to automatically activate PRO account after free access activation
+  const handleAutoActivatePro = async () => {
+    try {
+      // Get the current user from auth context
+      const { getAuth } = await import('firebase/auth');
+      const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore');
+      const { db } = await import('../config/firebase');
+      
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      
+      if (currentUser) {
+        // Update user's proStatus to active
+        const userRef = doc(db, 'users', currentUser.uid);
+        await updateDoc(userRef, {
+          proStatus: 'active',
+          proId: currentUser.uid,
+          updatedAt: serverTimestamp()
+        });
+
+        console.log('✅ FREE ACCESS: PRO account automatically activated!');
+        
+        // Redirect to dashboard
+        window.location.href = '/app/dashboard';
+      }
+    } catch (error) {
+      console.error('Error auto-activating PRO account:', error);
+      // If auto-activation fails, user can still manually activate
     }
   };
 

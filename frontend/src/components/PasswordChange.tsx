@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth';
 import { validatePassword, validateCurrentPassword } from '../utils/validation';
 import { CSRFProtection, SecurityAudit } from '../utils/security';
 import PasswordStrengthIndicator from './PasswordStrengthIndicator';
+import { PasswordSecurityManager } from '../utils/passwordSecurityManager';
 
 interface PasswordChangeProps {
   onClose: () => void;
@@ -96,6 +97,15 @@ const PasswordChange: React.FC<PasswordChangeProps> = ({ onClose }) => {
 
       // Log successful password change
       SecurityAudit.logSecurityEvent('info', 'Password changed successfully', user?.uid, 'password_change_success');
+
+      // Clear the password change requirement flag if it was set
+      try {
+        await PasswordSecurityManager.clearPasswordChangeRequirement(user?.uid || '');
+        console.log('✅ Password change requirement flag cleared');
+      } catch (error) {
+        console.warn('⚠️ Failed to clear password change requirement flag:', error);
+        // Don't block the user if this fails - they've already changed their password
+      }
 
       setSuccess('Password changed successfully!');
       

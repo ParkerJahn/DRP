@@ -68,6 +68,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (userSnap.exists()) {
           const userData = userSnap.data() as User;
           
+          // Automatic fix for PRO users missing proId
+          if (userData.role === 'PRO' && (!userData.proId || userData.proId !== userData.uid)) {
+            console.log('🔄 Auto-fixing PRO user missing proId:', userData.uid);
+            
+            try {
+              // Update the user document to set proId to their uid
+              const { updateDoc, serverTimestamp } = await import('firebase/firestore');
+              await updateDoc(userRef, {
+                proId: userData.uid,
+                updatedAt: serverTimestamp()
+              });
+              
+              // Update local user data
+              userData.proId = userData.uid;
+              console.log('✅ Auto-fixed PRO user proId:', userData.uid);
+            } catch (error) {
+              console.error('❌ Error auto-fixing PRO user proId:', error);
+            }
+          }
+          
           setUser(userData);
           setRole(userData.role);
           setProId(userData.proId || null);

@@ -721,12 +721,12 @@ const Calendar: React.FC = () => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto">
-      <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-lg p-6">
+    <div className="max-w-7xl mx-auto px-2 sm:px-4">
+      <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-lg p-3 sm:p-6">
         {/* Header */}
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white font-ethnocentric">Calendar</h1>
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 sm:mb-6 space-y-3 sm:space-y-0">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white font-ethnocentric">Calendar</h1>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4">
             {/* View Toggle */}
             <div className="flex bg-gray-100 dark:bg-neutral-700 rounded-lg p-1">
               {(['month', 'week', 'day'] as const).map((viewOption) => (

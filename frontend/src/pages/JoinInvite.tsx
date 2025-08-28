@@ -37,12 +37,21 @@ const JoinInvite: React.FC = () => {
   
   // Add state to prevent multiple useEffect triggers
   const [hasAttemptedRedemption, setHasAttemptedRedemption] = useState(false);
+  
+  // Add success state to prevent errors after successful account creation
+  const [accountCreated, setAccountCreated] = useState(false);
 
   useEffect(() => {
     console.log('🔍 JoinInvite useEffect - component mounted');
     console.log('🔍 Current URL:', window.location.href);
     console.log('🔍 Current pathname:', window.location.pathname);
     console.log('🔍 Current search params:', window.location.search);
+    
+    // Don't show errors if account was successfully created
+    if (accountCreated) {
+      console.log('✅ Account already created, skipping token validation');
+      return;
+    }
     
     const token = searchParams.get('token');
     if (!token) {
@@ -54,7 +63,7 @@ const JoinInvite: React.FC = () => {
     
     console.log('✅ Token found in URL:', token.substring(0, 20) + '...');
     validateInviteToken(token);
-  }, [searchParams]);
+  }, [searchParams, accountCreated]);
 
   const validateInviteToken = async (token: string) => {
     try {
@@ -101,8 +110,12 @@ const JoinInvite: React.FC = () => {
   // Auto-redeem invite if user is already authenticated
   useEffect(() => {
     // Prevent multiple triggers
-    if (hasAttemptedRedemption) {
-      console.log('⚠️ Auto-redemption already attempted, skipping...');
+    if (hasAttemptedRedemption || submitting || redeemingInvite) {
+      console.log('⚠️ Auto-redemption skipped:', { 
+        hasAttemptedRedemption, 
+        submitting, 
+        redeemingInvite 
+      });
       return;
     }
     
@@ -141,9 +154,11 @@ const JoinInvite: React.FC = () => {
         }
       } else {
         console.log('⚠️ User already has a team, skipping auto-redemption');
+        // User already has a team, redirect to dashboard
+        navigate('/app/dashboard');
       }
     }
-  }, [user, inviteData, loading, redeemingInvite, hasAttemptedRedemption]);
+  }, [user, inviteData, loading, redeemingInvite, hasAttemptedRedemption, submitting, navigate]);
 
   const handleFormChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -221,6 +236,9 @@ const JoinInvite: React.FC = () => {
 
         console.log('✅ New user account created successfully');
         
+        // Mark account as created to prevent errors
+        setAccountCreated(true);
+        
         // Now redeem the invite for the new user
         await redeemInviteForUser(newUser.uid, formData.email, `${formData.firstName} ${formData.lastName}`);
       } else {
@@ -228,6 +246,9 @@ const JoinInvite: React.FC = () => {
         try {
           const userCredential = await signInWithEmailAndPassword(auth, formData.email, formData.password);
           const existingUser = userCredential.user;
+
+          // Mark account as created to prevent errors
+          setAccountCreated(true);
 
           // Automatically redeem the invite for the existing user
           await redeemInviteForUser(existingUser.uid, formData.email, `${formData.firstName} ${formData.lastName}`);
@@ -309,6 +330,9 @@ const JoinInvite: React.FC = () => {
         email: result.user.email,
         displayName: result.user.displayName
       });
+
+      // Mark account as created to prevent errors
+      setAccountCreated(true);
 
       // Wait a moment for auth state to settle
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -428,7 +452,7 @@ const JoinInvite: React.FC = () => {
       // Wait for the user data to be updated in the context
       // This ensures the user has the correct role and proId before navigation
       let attempts = 0;
-      const maxAttempts = 20; // Increased attempts
+      const maxAttempts = 10; // Reduced from 20 to 5 seconds
       
       while (attempts < maxAttempts) {
         console.log(`🔄 Waiting for user data update... attempt ${attempts + 1}/${maxAttempts}`);
@@ -453,14 +477,17 @@ const JoinInvite: React.FC = () => {
         console.warn('⚠️ User data update timeout, proceeding with navigation anyway');
       }
       
-      console.log('🚀 About to show success message and redirect to login...');
+      console.log('🚀 About to show success message and redirect to dashboard...');
       console.log('🔍 Final URL before navigation:', window.location.href);
       
-      // Show success message and redirect to login page
-      alert(`🎉 You have been successfully connected to the team! You will be exited out of this page and you can sign in normally.`);
+      // Mark account as created to prevent errors
+      setAccountCreated(true);
       
-      // Navigate to login page instead of dashboard
-      navigate('/auth');
+      // Show success message and redirect to dashboard
+      alert(`🎉 You have been successfully connected to the team! Welcome to DRP Workshop!`);
+      
+      // Navigate to dashboard instead of login page
+      navigate('/app/dashboard');
       
     } catch (error) {
       console.error('❌ Error redeeming invite:', error);

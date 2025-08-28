@@ -1,0 +1,31 @@
+User-agent: *
+Allow: /
+
+# Public pages - fully indexable
+Allow: /about
+Allow: /features
+Allow: /pricing
+Allow: /contact
+Allow: /auth
+Allow: /register
+
+# App pages - indexable but may require authentication
+Allow: /app/dashboard
+Allow: /app/profile
+Allow: /app/team
+Allow: /app/messages
+Allow: /app/calendar
+Allow: /app/programs
+Allow: /app/payments
+Allow: /app/packages
+
+# Disallow private/sensitive areas
+Disallow: /app/password-change-required
+Disallow: /billing/
+Disallow: /join
+
+# Sitemap location
+Sitemap: https://drpworkshop.com/sitemap.xml
+
+# Crawl delay (optional - be respectful to servers)
+Crawl-delay: 1 

@@ -30,14 +30,39 @@ export const usePasswordSecurity = (): PasswordSecurityStatus => {
         if (hasCompletedChange) {
           console.log('✅ User has completed password change in this session');
           setNeedsPasswordChange(false);
+          setIsChecking(false);
           return;
         }
 
-        // Check if user's current password meets security standards
-        // Since we can't access the actual password hash, we'll assume existing passwords are valid
-        // and only require changes for new accounts or specific security events
-        console.log('✅ User password meets current security standards');
-        setNeedsPasswordChange(false);
+        // Check if user has a flag indicating they need a password change
+        // This could be set during user creation, security events, or admin actions
+        if (user.passwordChangeRequired) {
+          console.log('🔒 User has passwordChangeRequired flag set');
+          setNeedsPasswordChange(true);
+          setIsChecking(false);
+          return;
+        }
+
+        // Check if user's account was created recently (within last 30 days)
+        // New accounts might need password updates to meet current security standards
+        if (user.createdAt) {
+          const accountAge = Date.now() - user.createdAt.toDate().getTime();
+          const daysSinceCreation = accountAge / (1000 * 60 * 60 * 24);
+          
+          if (daysSinceCreation < 30) {
+            console.log('🆕 User account is new (less than 30 days old)');
+            // For new accounts, we assume they have valid passwords since they just created them
+            setNeedsPasswordChange(false);
+          } else {
+            console.log('✅ User account is established (more than 30 days old)');
+            // For established accounts, we assume they have valid passwords
+            setNeedsPasswordChange(false);
+          }
+        } else {
+          // If no creation date, assume established account
+          console.log('✅ User account creation date unknown, assuming established account');
+          setNeedsPasswordChange(false);
+        }
         
       } catch (error) {
         console.error('Error checking password security:', error);

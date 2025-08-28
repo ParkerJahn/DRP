@@ -1,10 +1,40 @@
 import React from 'react';
 import { ROUTES } from '../config/routes';
 import darkLogo from '/darkmodelogo.png';
+import SEO from '../components/SEO';
 
 const Features: React.FC = () => {
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "DRP Workshop Features",
+    "description": "Discover the powerful tools that make DRP Workshop the ultimate platform for coaches, staff, and athletes.",
+    "url": "https://drpworkshop.com/features",
+    "applicationCategory": "SportsApplication",
+    "operatingSystem": "Web Browser",
+    "featureList": [
+      "Team Management",
+      "SWEATsheet Programs",
+      "Team Communication",
+      "Calendar & Events",
+      "Payment Processing",
+      "Athlete Tracking",
+      "Program Design",
+      "Performance Analytics"
+    ]
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-900">
+    <>
+      <SEO
+        title="Features - DRP Workshop"
+        description="Discover the powerful tools that make DRP Workshop the ultimate platform for coaches, staff, and athletes. Features include team management, SWEATsheet programs, communication tools, and more."
+        keywords="coaching platform features, team management software, workout program builder, athlete tracking, coach communication tools, sports training software, fitness coaching platform"
+        url="/features"
+        structuredData={structuredData}
+      />
+      
+      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-900">
       {/* Navigation */}
       <nav className="px-6 py-4 flex justify-between items-start relative">
         {/* Left: DRP Workshop Text */}
@@ -194,13 +224,14 @@ const Features: React.FC = () => {
         </div>
       </div>
 
-      {/* Footer */}
+            {/* Footer */}
       <footer className="px-6 py-8 border-t border-gray-700">
         <div className="max-w-6xl mx-auto text-center text-gray-400">
           <p>&copy; 2024 DRP Workshop. All rights reserved.</p>
         </div>
       </footer>
     </div>
+    </>
   );
 };
 

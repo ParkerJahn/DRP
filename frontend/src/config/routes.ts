@@ -136,8 +136,8 @@ export const ROUTE_CONFIG: Record<string, RouteConfig> = {
     component: 'TeamManagement',
     title: 'Your Team',
     requiresAuth: true,
-    allowedRoles: ['PRO'],
-    requireProActive: true,
+    allowedRoles: ['PRO', 'ATHLETE'],
+    requireProActive: false, // Athletes don't need PRO status
   },
   
   [ROUTES.MESSAGES]: {
@@ -220,7 +220,8 @@ export const getMenuItems = (role: UserRole | null) => {
     menuItems.splice(2, 0, { path: ROUTES.TEAM, title: 'Your Team', icon: 'team' });
     menuItems.push({ path: ROUTES.PAYMENTS, title: 'Payments', icon: 'payments' });
   } else if (role === 'ATHLETE') {
-    menuItems.splice(3, 0, { path: ROUTES.PAYMENTS, title: 'Payments', icon: 'payments' });
+    menuItems.splice(3, 0, { path: ROUTES.TEAM, title: 'Your Team', icon: 'team' });
+    menuItems.splice(4, 0, { path: ROUTES.PAYMENTS, title: 'Payments', icon: 'payments' });
   }
   
   return menuItems;

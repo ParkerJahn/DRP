@@ -21,6 +21,7 @@ export interface User {
   createdAt: Timestamp;
   updatedAt: Timestamp;
   proStatus?: ProStatus; // for PRO billing status
+  passwordChangeRequired?: boolean; // flag to indicate if user needs to change password
 }
 
 // Team Management
@@ -171,7 +172,8 @@ export type ProgramStatus = 'current' | 'archived' | 'draft';
 export interface Program {
   id?: string; // Firestore document id (present on reads)
   proId: string;
-  athleteUid: string;
+  athleteUid?: string; // Legacy field for backward compatibility
+  athleteUids: string[]; // Array of athlete UIDs for multiple athlete support
   title: string;
   status: ProgramStatus;
   phases: [Phase, Phase, Phase, Phase]; // fixed 4 phases

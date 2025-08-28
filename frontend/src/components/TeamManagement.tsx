@@ -538,7 +538,7 @@ function TeamManagement() {
 
   const getBaseOrigin = (): string => {
     // Prefer explicit env var when provided
-    const envBase = (import.meta as any)?.env?.VITE_APP_BASE_URL as string | undefined;
+    const envBase = (import.meta as { env?: { VITE_APP_BASE_URL?: string } })?.env?.VITE_APP_BASE_URL;
     if (envBase) {
       try { return new URL(envBase).origin; } catch { /* ignore */ }
     }

@@ -145,7 +145,13 @@ function AppContent() {
             </div>
             
             {/* Right: Get Started Button */}
-            <div className="flex justify-center sm:justify-end w-full sm:w-auto">
+            <div className="flex justify-center sm:justify-end w-full sm:w-auto space-x-3">
+              <a 
+                href={ROUTES.AUTH}
+                className="px-6 py-3 border border-indigo-400 text-indigo-300 rounded-lg hover:bg-indigo-400 hover:text-white transition-all duration-200 font-medium text-sm w-full sm:w-auto text-center"
+              >
+                Sign In
+              </a>
               <a 
                 href={ROUTES.GET_STARTED} 
                 onClick={() => console.log('Get Started button clicked!')}

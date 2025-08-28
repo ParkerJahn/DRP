@@ -12,9 +12,10 @@ import {
 interface FreeAccessActivationProps {
   onClose: () => void;
   onActivated: () => void;
+  refreshUser?: () => Promise<void>;
 }
 
-const FreeAccessActivation: React.FC<FreeAccessActivationProps> = ({ onClose, onActivated }) => {
+const FreeAccessActivation: React.FC<FreeAccessActivationProps> = ({ onClose, onActivated, refreshUser }) => {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,15 +45,15 @@ const FreeAccessActivation: React.FC<FreeAccessActivationProps> = ({ onClose, on
 
       // Validate the code
       if (validateFreeAccessCode(code)) {
-        // Activate free access
+        // Activate free access locally
         activateFreeAccess();
         setSuccess(true);
         setCurrentStatus(getFreeAccessStatus());
         
-        // Call the success callback and automatically activate PRO account
+        // Call the success callback and automatically activate PRO account securely
         setTimeout(() => {
           onActivated();
-          // Automatically trigger PRO activation after free access is activated
+          // Use secure Cloud Function to activate PRO account
           handleAutoActivatePro();
         }, 2000);
       } else {
@@ -66,34 +67,32 @@ const FreeAccessActivation: React.FC<FreeAccessActivationProps> = ({ onClose, on
     }
   };
 
-  // Function to automatically activate PRO account after free access activation
+  // Function to handle free access activation (without auto-activating PRO)
   const handleAutoActivatePro = async () => {
     try {
       // Get the current user from auth context
       const { getAuth } = await import('firebase/auth');
-      const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore');
-      const { db } = await import('../config/firebase');
       
       const auth = getAuth();
       const currentUser = auth.currentUser;
       
       if (currentUser) {
-        // Update user's proStatus to active
-        const userRef = doc(db, 'users', currentUser.uid);
-        await updateDoc(userRef, {
-          proStatus: 'active',
-          proId: currentUser.uid,
-          updatedAt: serverTimestamp()
-        });
-
-        console.log('✅ FREE ACCESS: PRO account automatically activated!');
+        // IMPORTANT: Do NOT automatically activate PRO account
+        // Users must go through proper payment verification or free access validation
+        // This prevents security bypass of payment requirements
         
-        // Redirect to dashboard
-        window.location.href = '/app/dashboard';
+        console.log('✅ FREE ACCESS: Free access activated, but PRO account requires proper validation');
+        
+        // Refresh the auth context to get updated user data
+        if (refreshUser) {
+          await refreshUser();
+        }
+        
+        // Don't redirect here - let the parent component handle it
+        // The onActivated callback will trigger a re-render and proper navigation
       }
     } catch (error) {
-      console.error('Error auto-activating PRO account:', error);
-      // If auto-activation fails, user can still manually activate
+      console.error('Error handling free access activation:', error);
     }
   };
 

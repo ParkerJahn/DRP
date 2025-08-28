@@ -11,7 +11,8 @@ import {
   orderBy, 
   serverTimestamp,
   writeBatch,
-  limit
+  limit,
+  Timestamp
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import type { Program, Phase } from '../types';
@@ -23,8 +24,8 @@ export interface ExerciseCategory {
   exercises: string[];
   createdBy: string;
   proId: string;
-  createdAt: any;
-  updatedAt: any;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 export const createExerciseCategory = async (categoryData: Omit<ExerciseCategory, 'id' | 'createdAt' | 'updatedAt'>) => {
@@ -53,16 +54,16 @@ export const getExerciseCategories = async (callerProId?: string) => {
     
     const categories: ExerciseCategory[] = [];
     querySnapshot.forEach((snap) => {
-      const raw = snap.data() as any;
+      const raw = snap.data() as Record<string, unknown>;
       if (typeof raw?.name === 'string' && Array.isArray(raw?.exercises)) {
         const category: ExerciseCategory = {
           id: snap.id,
           name: raw.name,
           exercises: raw.exercises,
-          createdBy: raw.createdBy,
-          proId: raw.proId,
-          createdAt: raw.createdAt,
-          updatedAt: raw.updatedAt,
+          createdBy: raw.createdBy as string,
+          proId: raw.proId as string,
+          createdAt: raw.createdAt as Timestamp,
+          updatedAt: raw.updatedAt as Timestamp,
         };
         categories.push(category);
       }
@@ -230,15 +231,15 @@ export const getProgramsByAthlete = async (athleteUid: string) => {
     );
     const querySnapshot = await getDocs(q);
     
-    const programs: any[] = [];
+    const programs: Program[] = [];
     querySnapshot.forEach((doc) => {
-      programs.push({ id: doc.id, ...doc.data() });
+      programs.push({ id: doc.id, ...doc.data() } as Program);
     });
     
     // Sort in memory instead of requiring Firestore index
     programs.sort((a, b) => {
-      const dateA = a.createdAt?.toDate?.() || new Date(a.createdAt) || new Date(0);
-      const dateB = b.createdAt?.toDate?.() || new Date(b.createdAt) || new Date(0);
+      const dateA = a.createdAt?.toDate?.() || new Date(0);
+      const dateB = b.createdAt?.toDate?.() || new Date(0);
       return dateB.getTime() - dateA.getTime(); // Newest first
     });
     
@@ -261,9 +262,9 @@ export const getProgramsByStatus = async (proId: string, status: Program['status
     );
     const querySnapshot = await getDocs(q);
     
-    const programs: any[] = [];
+    const programs: Program[] = [];
     querySnapshot.forEach((doc) => {
-      programs.push({ id: doc.id, ...doc.data() });
+      programs.push({ id: doc.id, ...doc.data() } as Program);
     });
     
     return { success: true, programs };
@@ -337,8 +338,8 @@ export interface ProgramTemplate {
   title: string;
   phases: Phase[] | [Phase, Phase, Phase, Phase];
   createdBy: string;
-  createdAt: any;
-  updatedAt: any;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 export const createProgramTemplate = async (template: Omit<ProgramTemplate, 'id' | 'createdAt' | 'updatedAt'>) => {

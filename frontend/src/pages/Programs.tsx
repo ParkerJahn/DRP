@@ -13,7 +13,7 @@ import {
   type ExerciseCategory,
   deleteProgram
 } from '../services/programs';
-import type { Program, ProgramStatus, Phase, User } from '../types';
+import type { Program, ProgramStatus, Phase } from '../types';
 // import type { ProgramTemplate } from '../services/programs';
 import { Timestamp } from 'firebase/firestore';
 import { getDoc, doc } from 'firebase/firestore';
@@ -56,8 +56,14 @@ const Programs: React.FC = () => {
   // const [templates, setTemplates] = useState<{ id: string; title: string }[]>([]);
 
   // Team data for creator information
-  const [teamMembers, setTeamMembers] = useState<any[]>([]);
-  const [teamInfo, setTeamInfo] = useState<any>(null);
+  const [teamMembers, setTeamMembers] = useState<{ uid: string; firstName?: string; lastName?: string; role: string }[]>([]);
+  const [teamInfo, setTeamInfo] = useState<{ 
+    teamName?: string; 
+    proInfo?: { uid: string; firstName?: string; lastName?: string }; 
+    members?: number;
+    staffCount?: number;
+    athleteCount?: number;
+  } | null>(null);
 
   // Load programs from Firestore
   const loadPrograms = async () => {
@@ -164,11 +170,9 @@ const Programs: React.FC = () => {
                 if (proUserDoc.exists()) {
                   const proUserData = proUserDoc.data();
                   proUserInfo = {
-                    uid: teamData.proId,
-                    firstName: proUserData.firstName || 'Coach',
-                    lastName: proUserData.lastName || 'User',
-                    email: proUserData.email || '',
-                    role: 'PRO'
+                    uid: proUserData.uid,
+                    firstName: proUserData.firstName || '',
+                    lastName: proUserData.lastName || ''
                   };
                 }
               } catch (error) {
@@ -178,7 +182,7 @@ const Programs: React.FC = () => {
             
             setTeamInfo({
               members: allMembers.length,
-              proInfo: proUserInfo,
+              proInfo: proUserInfo as { uid: string; firstName?: string; lastName?: string } | undefined,
               staffCount: allMembers.filter(m => m.role === 'STAFF').length,
               athleteCount: allMembers.filter(m => m.role === 'ATHLETE').length
             });
@@ -438,7 +442,7 @@ const Programs: React.FC = () => {
           return sortOrder === 'asc'
             ? a.status.localeCompare(b.status)
             : b.status.localeCompare(a.status);
-        case 'athlete':
+        case 'athlete': {
           const aAthlete = athletes.find(ath => a.athleteUids?.includes(ath.uid));
           const bAthlete = athletes.find(ath => b.athleteUids?.includes(ath.uid));
           const aName = aAthlete ? `${aAthlete.firstName} ${aAthlete.lastName}` : '';
@@ -446,11 +450,13 @@ const Programs: React.FC = () => {
           return sortOrder === 'asc'
             ? aName.localeCompare(bName)
             : bName.localeCompare(aName);
+        }
         case 'date':
-        default:
+        default: {
           const aDate = a.createdAt?.toDate?.() || new Date(0);
           const bDate = b.createdAt?.toDate?.() || new Date(0);
           return sortOrder === 'asc' ? aDate.getTime() - bDate.getTime() : bDate.getTime() - aDate.getTime();
+        }
       }
     });
 
@@ -522,33 +528,6 @@ const Programs: React.FC = () => {
     return [phases[0], phases[1], phases[2], phases[3]];
   };
 
-  const createMockPrograms = (): Program[] => {
-    return [
-      {
-        id: 'program1',
-        proId: 'pro1',
-        athleteUids: ['athlete1'],
-        title: 'Strength Training Program',
-        status: 'current',
-        phases: createMockPhases(),
-        createdBy: 'pro1',
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now()
-      },
-      {
-        id: 'program2',
-        proId: 'pro1',
-        athleteUids: ['athlete2'],
-        title: 'Cardio Program',
-        status: 'draft',
-        phases: createMockPhases(),
-        createdBy: 'pro1',
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now()
-      }
-    ];
-  };
-
   const canCreateProgram = user?.role === 'PRO' || user?.role === 'STAFF';
   // const canViewExerciseLibrary = user?.role === 'PRO' || user?.role === 'STAFF';
 
@@ -575,7 +554,7 @@ const Programs: React.FC = () => {
         });
         if (result.success) {
           if (result.category) {
-            setExerciseCategories(prev => [...prev, result.category]);
+            setExerciseCategories(prev => [...prev, result.category as ExerciseCategory]);
           }
           setNewCategoryName('');
           setIsAddingCategory(false);
@@ -711,8 +690,8 @@ const Programs: React.FC = () => {
   };
 
   // Validation function to prevent undefined values
-  const validateExerciseData = (exercise: any) => {
-    const validExercise: any = {};
+  const validateExerciseData = (exercise: Record<string, unknown>) => {
+    const validExercise: Record<string, unknown> = {};
     Object.keys(exercise).forEach(key => {
       if (exercise[key] !== undefined && exercise[key] !== null && exercise[key] !== '') {
         validExercise[key] = exercise[key];
@@ -1387,7 +1366,7 @@ const Programs: React.FC = () => {
           <div className="grid grid-cols-4 gap-4">
             {[1, 2, 3, 4].map((phase) => {
               const phaseData = selectedProgram.phases[phase - 1];
-              const isCompleted = (phaseData as any).status === 'completed';
+              const isCompleted = (phaseData as { status?: string })?.status === 'completed';
               const isCurrent = currentPhase === phase;
               const completionRate = getPhaseCompletionRate(phaseData);
               
@@ -1593,7 +1572,7 @@ const Programs: React.FC = () => {
                                     <input
                                       type="text"
                                       placeholder="Weight (lbs)"
-                                      value={(exercise.setDetails as any)?.[setIndex]?.weight || ''}
+                                      value={(exercise.setDetails as Record<number, { weight?: string }>)?.[setIndex]?.weight || ''}
                                       onChange={(e) => handleSetWeightChange(blockIndex, exerciseIndex, setIndex, e.target.value)}
                                       className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white text-sm"
                                     />
@@ -1602,23 +1581,23 @@ const Programs: React.FC = () => {
                                   {/* Reps - Now individual per set */}
                                   <div className="col-span-1">
                                     <select
-                                      value={(exercise.setDetails as any)?.[setIndex]?.reps || ''}
+                                      value={(exercise.setDetails as Record<number, { reps?: string }>)?.[setIndex]?.reps || ''}
                                       onChange={(e) => handleSetRepsChange(blockIndex, exerciseIndex, setIndex, e.target.value)}
                                       className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white text-sm"
                                     >
                                       <option value="">Reps</option>
-                                      {[5,8,10,12,15,20,25].map(num => (
+                                      {[1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30].map(num => (
                                         <option key={num} value={num}>{num}</option>
                                       ))}
                                     </select>
                                   </div>
                                   
                                   {/* Rest Time */}
-                                  <div className="col-span-2">
+                                  <div className="col-span-1">
                                     <input
                                       type="text"
                                       placeholder="Rest (sec)"
-                                      value={(exercise.setDetails as any)?.[setIndex]?.restSec || ''}
+                                      value={(exercise.setDetails as Record<number, { restSec?: string }>)?.[setIndex]?.restSec || ''}
                                       onChange={(e) => handleSetRestChange(blockIndex, exerciseIndex, setIndex, e.target.value)}
                                       className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white text-sm"
                                     />
@@ -1629,17 +1608,17 @@ const Programs: React.FC = () => {
                                     <input
                                       type="checkbox"
                                       className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                      checked={(exercise.setDetails as any)?.[setIndex]?.completed || false}
+                                      checked={(exercise.setDetails as Record<number, { completed?: boolean }>)?.[setIndex]?.completed || false}
                                       onChange={(e) => handleSetCompletionChange(blockIndex, exerciseIndex, setIndex, e.target.checked)}
                                     />
                                   </div>
                                   
                                   {/* Notes */}
-                                  <div className="col-span-1">
+                                  <div className="col-span-2">
                                     <input
                                       type="text"
                                       placeholder="Notes"
-                                      value={(exercise.setDetails as any)?.[setIndex]?.notes || ''}
+                                      value={(exercise.setDetails as Record<number, { notes?: string }>)?.[setIndex]?.notes || ''}
                                       onChange={(e) => handleSetNotesChange(blockIndex, exerciseIndex, setIndex, e.target.value)}
                                       className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white text-sm"
                                     />
@@ -1846,7 +1825,6 @@ const Programs: React.FC = () => {
         {/* Programs Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
           {filteredPrograms.map((program) => {
-            const athlete = athletes.find(a => a.uid === program.athleteUid);
             const progress = getProgramProgress(program);
             
             return (

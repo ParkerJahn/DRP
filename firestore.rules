@@ -71,9 +71,9 @@ service cloud.firestore {
         (isStaff() && proId() != null && resource.data.proId == proId()) // STAFF can read team members for analytics
       );
       allow update: if isSignedIn() && userId == uid() && (
-        // only allow updating safe fields
+        // only allow updating safe fields - REMOVED proStatus for security
         request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['displayName', 'photoURL', 'phoneNumber', 'proStatus', 'updatedAt'])
+          .hasOnly(['displayName', 'photoURL', 'phoneNumber', 'updatedAt'])
       );
       allow create: if isSignedIn() && userId == uid(); // Allow users to create their own profile
       allow delete: if false; // only deleted by Functions

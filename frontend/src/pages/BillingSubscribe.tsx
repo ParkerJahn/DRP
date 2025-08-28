@@ -1,16 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { getFreeAccessStatus } from '../config/freeAccess';
 import type { FreeAccessStatus } from '../config/freeAccess';
 import { useAuth } from '../hooks/useAuth';
-import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../config/firebase';
 import { signOut } from 'firebase/auth';
 import { auth } from '../config/firebase';
+import { useNavigate } from 'react-router-dom';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import FreeAccessActivation from '../components/FreeAccessActivation';
 
 const BillingSubscribe: React.FC = () => {
-  const { role, proStatus, user } = useAuth();
+  const { role, proStatus, user, refreshUser } = useAuth();
+  const navigate = useNavigate();
   const [activating, setActivating] = React.useState(false);
+  const [redirecting, setRedirecting] = React.useState(false);
   const [freeAccessStatus] = useState<FreeAccessStatus>(getFreeAccessStatus());
   const [showFreeAccessModal, setShowFreeAccessModal] = useState(false);
 
@@ -23,34 +25,47 @@ const BillingSubscribe: React.FC = () => {
       await signOut(auth);
       // Clear any local storage or state
       localStorage.clear();
-      // Redirect to home page
-      window.location.href = '/';
+      // Use React Router navigation instead of window.location.href
+      navigate('/');
     } catch (error) {
       console.error('Error signing out:', error);
       // Force redirect even if sign out fails
-      window.location.href = '/';
+      navigate('/');
     }
   };
 
   // If user is not PRO or is already active, redirect
-  React.useEffect(() => {
-    if (role !== 'PRO') {
-      signOutAndGoHome();
-      return;
-    }
+  useEffect(() => {
+    // Prevent multiple redirects
+    if (redirecting) return;
     
-    // If user has free access activated, automatically redirect to dashboard
-    if (freeAccessStatus.isActive) {
-      console.log('✅ FREE ACCESS: User has free access, redirecting to dashboard...');
-      window.location.href = '/app/dashboard';
-      return;
-    }
-    
-    if (currentProStatus === 'active') {
-      signOutAndGoHome();
-      return;
-    }
-  }, [role, currentProStatus, freeAccessStatus.isActive]);
+    // Add a small delay to ensure auth context is fully updated
+    const timer = setTimeout(() => {
+      if (role !== 'PRO') {
+        setRedirecting(true);
+        signOutAndGoHome();
+        return;
+      }
+      
+      // If user is already active, redirect to dashboard (regardless of how they activated)
+      if (currentProStatus === 'active') {
+        console.log('✅ PRO user already active, redirecting to dashboard...');
+        setRedirecting(true);
+        navigate('/app/dashboard');
+        return;
+      }
+      
+      // If user has free access activated, automatically redirect to dashboard
+      if (freeAccessStatus.isActive) {
+        console.log('✅ FREE ACCESS: User has free access, redirecting to dashboard...');
+        setRedirecting(true);
+        navigate('/app/dashboard');
+        return;
+      }
+    }, 500); // 500ms delay to ensure auth context is stable
+
+    return () => clearTimeout(timer);
+  }, [role, currentProStatus, freeAccessStatus.isActive, navigate, redirecting]);
 
   const handleActivatePro = async () => {
     if (!user) return;
@@ -59,22 +74,28 @@ const BillingSubscribe: React.FC = () => {
 
     try {
       // Check if user has free access activated
-      if (freeAccessStatus.isActive) {
-        console.log('✅ FREE ACCESS: Activating PRO account without payment...');
+      const currentFreeAccessStatus = getFreeAccessStatus();
+      
+      if (currentFreeAccessStatus.isActive) {
+        console.log('✅ FREE ACCESS: Activating PRO account with free access validation...');
         
-        // Update user's proStatus to active
-        const userRef = doc(db, 'users', user.uid);
-        await updateDoc(userRef, {
-          proStatus: 'active',
-          proId: user.uid, // Set proId to their own UID so they appear in team members
-          updatedAt: serverTimestamp()
+        // Use secure Cloud Function to activate PRO account
+        const functions = getFunctions();
+        const activateProAccount = httpsCallable(functions, 'activateProAccount');
+        
+        await activateProAccount({
+          activationMethod: 'free_access',
+          freeAccessCode: 'DRP-X7K9M2P4'
         });
-
-        console.log('✅ FREE ACCESS: PRO account activated successfully!');
-        alert('🎉 FREE ACCESS: PRO account activated! You will now be redirected to your dashboard.');
         
-        // Redirect to dashboard to start using PRO features
-        window.location.href = '/app/dashboard';
+        console.log('✅ PRO account activated successfully via free access!');
+        alert('🎉 PRO account activated! You will now be redirected to your dashboard.');
+        
+        // Set redirecting state to prevent loops
+        setRedirecting(true);
+        
+        // Use React Router navigation
+        navigate('/app/dashboard');
         return;
       }
 
@@ -89,7 +110,7 @@ const BillingSubscribe: React.FC = () => {
     }
   };
 
-  if (role !== 'PRO' || (currentProStatus === 'active' && !freeAccessStatus.isActive)) {
+  if (role !== 'PRO' || currentProStatus === 'active') {
     signOutAndGoHome();
     return null;
   }
@@ -218,11 +239,13 @@ const BillingSubscribe: React.FC = () => {
           onClose={() => setShowFreeAccessModal(false)}
           onActivated={() => {
             setShowFreeAccessModal(false);
-            // Refresh the free access status and show success
-            alert('🎉 Free access activated successfully! You can now activate your PRO account for free.');
-            // Force a re-render to show the updated status
-            window.location.reload();
+            // Refresh the auth context to get updated user data
+            if (user?.uid) {
+              // Force a re-render by updating local state
+              setActivating(false);
+            }
           }}
+          refreshUser={refreshUser}
         />
       )}
     </div>

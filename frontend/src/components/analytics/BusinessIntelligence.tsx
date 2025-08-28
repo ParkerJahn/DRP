@@ -160,7 +160,7 @@ export const BusinessIntelligence: React.FC<BusinessIntelligenceProps> = ({ proI
     };
   };
 
-  const processKPIData = (payments: Payment[], athletes: any[]): KPIData => {
+  const processKPIData = (payments: Payment[], athletes: { uid: string }[]): KPIData => {
     const successfulPayments = payments.filter(p => p.status === 'succeeded');
     const totalRevenue = successfulPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
     const totalSessions = successfulPayments.length;

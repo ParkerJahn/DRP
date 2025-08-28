@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import Header from './Header';
 import { usePasswordSecurity } from '../hooks/usePasswordSecurity';
+import useSessionTimeout from '../hooks/useSessionTimeout';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -10,6 +11,9 @@ interface AppShellProps {
 export const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const location = useLocation();
   const { needsPasswordChange, isChecking, redirectToPasswordChange } = usePasswordSecurity();
+  
+  // Initialize session timeout (hook handles everything automatically)
+  useSessionTimeout();
 
   // Check if user needs password change and redirect if necessary
   useEffect(() => {

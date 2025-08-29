@@ -32,45 +32,40 @@ export interface AvailabilityTemplate {
   id?: string;
   proId: string;
   userId: string;
-  name: string; // e.g., "Morning Schedule", "Weekend Hours"
+  name: string;
   slots: Omit<AvailabilitySlot, 'id' | 'proId' | 'userId' | 'createdAt' | 'updatedAt'>[];
-  isDefault: boolean;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 
-// Create availability slot
-export const createAvailabilitySlot = async (slotData: Omit<AvailabilitySlot, 'id' | 'createdAt' | 'updatedAt'>) => {
+// ===== AVAILABILITY SLOTS - Now using user subcollections =====
+
+// Create a new availability slot in user's subcollection
+export const createAvailabilitySlot = async (userId: string, slotData: Omit<AvailabilitySlot, 'id' | 'createdAt' | 'updatedAt'>) => {
   try {
     // Validate required fields
-    if (!slotData.proId || !slotData.userId || slotData.dayOfWeek === undefined || !slotData.startTime || !slotData.endTime) {
-      console.error('Missing required fields:', {
-        proId: slotData.proId,
-        userId: slotData.userId,
-        dayOfWeek: slotData.dayOfWeek,
-        startTime: slotData.startTime,
-        endTime: slotData.endTime
-      });
-      return { success: false, error: 'Missing required fields' };
+    if (!slotData.userId || !slotData.proId) {
+      return { success: false, error: 'User ID and PRO ID are required' };
     }
-
-    // Clean the data to remove undefined values
-    const cleanSlotData = {
-      proId: slotData.proId,
-      userId: slotData.userId,
-      dayOfWeek: slotData.dayOfWeek,
-      startTime: slotData.startTime,
-      endTime: slotData.endTime,
-      isRecurring: slotData.isRecurring,
-      isActive: slotData.isActive,
-      ...(slotData.startDate && { startDate: slotData.startDate }),
-      ...(slotData.endDate && { endDate: slotData.endDate })
-    };
-
-    console.log('Creating availability slot with data:', cleanSlotData);
     
-    const slotRef = await addDoc(collection(db, 'availabilitySlots'), {
-      ...cleanSlotData,
+    if (slotData.dayOfWeek < 0 || slotData.dayOfWeek > 6) {
+      return { success: false, error: 'Day of week must be between 0 (Sunday) and 6 (Saturday)' };
+    }
+    
+    // Validate time format (basic check)
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timeRegex.test(slotData.startTime) || !timeRegex.test(slotData.endTime)) {
+      return { success: false, error: 'Invalid time format. Use HH:MM format' };
+    }
+    
+    // Ensure end time is after start time
+    if (slotData.startTime >= slotData.endTime) {
+      return { success: false, error: 'End time must be after start time' };
+    }
+    
+    const userSlotsRef = collection(db, 'users', userId, 'availabilitySlots');
+    const slotRef = await addDoc(userSlotsRef, {
+      ...slotData,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -78,29 +73,19 @@ export const createAvailabilitySlot = async (slotData: Omit<AvailabilitySlot, 'i
     return { success: true, slotId: slotRef.id };
   } catch (error) {
     console.error('Error creating availability slot:', error);
-    console.error('Error details:', {
-      message: error instanceof Error ? error.message : String(error),
-      code: (error as { code?: string })?.code,
-      stack: error instanceof Error ? error.stack : undefined
-    });
     return { success: false, error };
   }
 };
 
-// Get availability slots for a user
-export const getAvailabilitySlots = async (userId: string) => {
+// Get availability slots for a specific user
+export const getUserAvailabilitySlots = async (userId: string) => {
   try {
-    const slotsRef = collection(db, 'availabilitySlots');
-    const q = query(
-      slotsRef,
-      where('userId', '==', userId),
-      where('isActive', '==', true)
-    );
-    const querySnapshot = await getDocs(q);
+    const userSlotsRef = collection(db, 'users', userId, 'availabilitySlots');
+    const querySnapshot = await getDocs(userSlotsRef);
     
-    const slots: AvailabilitySlot[] = [];
+    const slots: Array<AvailabilitySlot & { id: string }> = [];
     querySnapshot.forEach((doc) => {
-      slots.push({ id: doc.id, ...doc.data() } as AvailabilitySlot);
+      slots.push({ id: doc.id, ...doc.data() } as AvailabilitySlot & { id: string });
     });
     
     // Sort by day of week, then by start time
@@ -113,51 +98,30 @@ export const getAvailabilitySlots = async (userId: string) => {
     
     return { success: true, slots };
   } catch (error) {
-    console.error('Error fetching availability slots:', error);
+    console.error('Error fetching user availability slots:', error);
     return { success: false, error };
   }
 };
 
-// Get availability slots for a PRO's team
-export const getTeamAvailabilitySlots = async (proId: string) => {
+// Get availability slots by PRO - needs redesign for subcollections
+export const getAvailabilitySlotsByPro = async (proId: string) => {
   try {
-    const slotsRef = collection(db, 'availabilitySlots');
-    const q = query(
-      slotsRef,
-      where('proId', '==', proId),
-      where('isActive', '==', true)
-    );
-    const querySnapshot = await getDocs(q);
-    
-    const slots: AvailabilitySlot[] = [];
-    querySnapshot.forEach((doc) => {
-      slots.push({ id: doc.id, ...doc.data() } as AvailabilitySlot);
-    });
-    
-    // Sort by day of week, then by start time
-    slots.sort((a, b) => {
-      if (a.dayOfWeek !== b.dayOfWeek) {
-        return a.dayOfWeek - b.dayOfWeek;
-      }
-      return a.startTime.localeCompare(b.startTime);
-    });
-    
-    return { success: true, slots };
+    console.warn(`getAvailabilitySlotsByPro for ${proId} needs to be redesigned for subcollection architecture`);
+    return { success: false, error: 'Method needs redesign for subcollections' };
   } catch (error) {
-    console.error('Error fetching team availability slots:', error);
+    console.error('Error fetching availability slots by PRO:', error);
     return { success: false, error };
   }
 };
 
-// Update availability slot
-export const updateAvailabilitySlot = async (slotId: string, updates: Partial<AvailabilitySlot>) => {
+// Update availability slot in user's subcollection
+export const updateAvailabilitySlot = async (userId: string, slotId: string, updates: Partial<AvailabilitySlot>) => {
   try {
-    const slotRef = doc(db, 'availabilitySlots', slotId);
+    const slotRef = doc(db, 'users', userId, 'availabilitySlots', slotId);
     await updateDoc(slotRef, {
       ...updates,
       updatedAt: serverTimestamp(),
     });
-    
     return { success: true };
   } catch (error) {
     console.error('Error updating availability slot:', error);
@@ -165,12 +129,11 @@ export const updateAvailabilitySlot = async (slotId: string, updates: Partial<Av
   }
 };
 
-// Delete availability slot
-export const deleteAvailabilitySlot = async (slotId: string) => {
+// Delete availability slot from user's subcollection
+export const deleteAvailabilitySlot = async (userId: string, slotId: string) => {
   try {
-    const slotRef = doc(db, 'availabilitySlots', slotId);
+    const slotRef = doc(db, 'users', userId, 'availabilitySlots', slotId);
     await deleteDoc(slotRef);
-    
     return { success: true };
   } catch (error) {
     console.error('Error deleting availability slot:', error);
@@ -178,10 +141,52 @@ export const deleteAvailabilitySlot = async (slotId: string) => {
   }
 };
 
-// Create availability template
-export const createAvailabilityTemplate = async (templateData: Omit<AvailabilityTemplate, 'id' | 'createdAt' | 'updatedAt'>) => {
+// Get active availability slots for a user
+export const getActiveAvailabilitySlots = async (userId: string) => {
   try {
-    const templateRef = await addDoc(collection(db, 'availabilityTemplates'), {
+    const userSlotsRef = collection(db, 'users', userId, 'availabilitySlots');
+    const q = query(
+      userSlotsRef,
+      where('isActive', '==', true)
+    );
+    const querySnapshot = await getDocs(q);
+    
+    const slots: Array<AvailabilitySlot & { id: string }> = [];
+    querySnapshot.forEach((doc) => {
+      slots.push({ id: doc.id, ...doc.data() } as AvailabilitySlot & { id: string });
+    });
+    
+    // Sort by day of week, then by start time
+    slots.sort((a, b) => {
+      if (a.dayOfWeek !== b.dayOfWeek) {
+        return a.dayOfWeek - b.dayOfWeek;
+      }
+      return a.startTime.localeCompare(b.startTime);
+    });
+    
+    return { success: true, slots };
+  } catch (error) {
+    console.error('Error fetching active availability slots:', error);
+    return { success: false, error };
+  }
+};
+
+// ===== AVAILABILITY TEMPLATES - Now using user subcollections =====
+
+// Create availability template in user's subcollection
+export const createAvailabilityTemplate = async (userId: string, templateData: Omit<AvailabilityTemplate, 'id' | 'createdAt' | 'updatedAt'>) => {
+  try {
+    // Validate required fields
+    if (!templateData.name || !templateData.userId || !templateData.proId) {
+      return { success: false, error: 'Name, User ID, and PRO ID are required' };
+    }
+    
+    if (!templateData.slots || templateData.slots.length === 0) {
+      return { success: false, error: 'At least one slot is required' };
+    }
+    
+    const userTemplatesRef = collection(db, 'users', userId, 'availabilityTemplates');
+    const templateRef = await addDoc(userTemplatesRef, {
       ...templateData,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -194,40 +199,32 @@ export const createAvailabilityTemplate = async (templateData: Omit<Availability
   }
 };
 
-// Get availability templates for a user
-export const getAvailabilityTemplates = async (userId: string) => {
+// Get availability templates for a specific user
+export const getUserAvailabilityTemplates = async (userId: string) => {
   try {
-    const templatesRef = collection(db, 'availabilityTemplates');
-    const q = query(
-      templatesRef,
-      where('userId', '==', userId)
-    );
-    const querySnapshot = await getDocs(q);
+    const userTemplatesRef = collection(db, 'users', userId, 'availabilityTemplates');
+    const querySnapshot = await getDocs(userTemplatesRef);
     
-    const templates: AvailabilityTemplate[] = [];
+    const templates: Array<AvailabilityTemplate & { id: string }> = [];
     querySnapshot.forEach((doc) => {
-      templates.push({ id: doc.id, ...doc.data() } as AvailabilityTemplate);
+      templates.push({ id: doc.id, ...doc.data() } as AvailabilityTemplate & { id: string });
     });
     
-    // Sort by default first, then by name
-    templates.sort((a, b) => {
-      if (a.isDefault !== b.isDefault) {
-        return b.isDefault ? 1 : -1;
-      }
-      return a.name.localeCompare(b.name);
-    });
+    // Sort by creation date (newest first)
+    templates.sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime());
     
     return { success: true, templates };
   } catch (error) {
-    console.error('Error fetching availability templates:', error);
+    console.error('Error fetching user availability templates:', error);
     return { success: false, error };
   }
 };
 
-// Apply template to create availability slots
-export const applyAvailabilityTemplate = async (templateId: string) => {
+// Apply availability template (create slots from template)
+export const applyAvailabilityTemplate = async (userId: string, templateId: string) => {
   try {
-    const templateRef = doc(db, 'availabilityTemplates', templateId);
+    // Get the template
+    const templateRef = doc(db, 'users', userId, 'availabilityTemplates', templateId);
     const templateSnap = await getDoc(templateRef);
     
     if (!templateSnap.exists()) {
@@ -237,21 +234,23 @@ export const applyAvailabilityTemplate = async (templateId: string) => {
     const template = templateSnap.data() as AvailabilityTemplate;
     
     // Create slots from template
-    const slotPromises = template.slots.map(slot => 
-      createAvailabilitySlot({
-        ...slot,
-        proId: template.proId,
+    const createdSlots = [];
+    for (const slotData of template.slots) {
+      const result = await createAvailabilitySlot(userId, {
+        ...slotData,
         userId: template.userId,
-      })
-    );
-    
-    const results = await Promise.all(slotPromises);
-    const successCount = results.filter(r => r.success).length;
+        proId: template.proId,
+      });
+      
+      if (result.success) {
+        createdSlots.push(result.slotId);
+      }
+    }
     
     return { 
       success: true, 
-      slotsCreated: successCount,
-      totalSlots: template.slots.length
+      createdSlots,
+      message: `Created ${createdSlots.length} availability slots from template`
     };
   } catch (error) {
     console.error('Error applying availability template:', error);
@@ -259,23 +258,32 @@ export const applyAvailabilityTemplate = async (templateId: string) => {
   }
 };
 
+// Delete availability template from user's subcollection
+export const deleteAvailabilityTemplate = async (userId: string, templateId: string) => {
+  try {
+    const templateRef = doc(db, 'users', userId, 'availabilityTemplates', templateId);
+    await deleteDoc(templateRef);
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting availability template:', error);
+    return { success: false, error };
+  }
+};
+
 // Check if a time slot is available for booking
 export const checkAvailability = async (
-  proId: string, 
-  userId: string, 
+  staffUserId: string, 
   date: Date, 
   startTime: string, 
   endTime: string
 ) => {
   try {
     const dayOfWeek = date.getDay();
-    const slotsRef = collection(db, 'availabilitySlots');
+    const userSlotsRef = collection(db, 'users', staffUserId, 'availabilitySlots');
     
     // Check for recurring availability
     const recurringQuery = query(
-      slotsRef,
-      where('proId', '==', proId),
-      where('userId', '==', userId),
+      userSlotsRef,
       where('dayOfWeek', '==', dayOfWeek),
       where('isActive', '==', true),
       where('isRecurring', '==', true)
@@ -294,9 +302,7 @@ export const checkAvailability = async (
     // Check for one-time availability
     if (!isAvailable) {
       const oneTimeQuery = query(
-        slotsRef,
-        where('proId', '==', proId),
-        where('userId', '==', userId),
+        userSlotsRef,
         where('startDate', '<=', Timestamp.fromDate(date)),
         where('endDate', '>=', Timestamp.fromDate(date)),
         where('isActive', '==', true),

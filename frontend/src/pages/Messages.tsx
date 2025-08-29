@@ -2,10 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { 
   createChat, 
-  getChatsByPro, 
-  getChatsByParticipant, 
+  getUserChats, 
   sendMessage, 
-  getMessagesByChat,
+  getMessages,
   deleteChat,
   updateChat
 } from '../services/messages';
@@ -57,15 +56,8 @@ const Messages: React.FC = () => {
     
     try {
       setLoading(true);
-      let result;
-      
-      if (user.role === 'ATHLETE') {
-        // Athletes see chats they're members of
-        result = await getChatsByParticipant(user.uid);
-      } else {
-        // PRO and Staff see all team chats
-        result = await getChatsByPro(user.proId || user.uid);
-      }
+      // All users get their own chats from their subcollection
+      const result = await getUserChats(user.uid);
       
       if (result.success) {
         setChats(result.chats || []);
@@ -103,10 +95,10 @@ const Messages: React.FC = () => {
   };
 
   const loadMessages = async (chatId: string) => {
-    if (!chatId) return;
+    if (!chatId || !user?.uid) return;
     
     try {
-      const result = await getMessagesByChat(chatId);
+      const result = await getMessages(user.uid, chatId);
       if (result.success) {
         setMessages(result.messages || []);
       } else {
@@ -128,7 +120,7 @@ const Messages: React.FC = () => {
         title: chatForm.title
       };
       
-      const result = await createChat(chatData);
+      const result = await createChat(user.uid, chatData);
       if (result.success) {
         await loadChats();
         setChatForm({ title: '', members: [] });
@@ -154,7 +146,7 @@ const Messages: React.FC = () => {
   };
 
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !selectedChat || sendingMessage) return;
+    if (!newMessage.trim() || !selectedChat || sendingMessage || !user) return;
 
     try {
       setSendingMessage(true);
@@ -164,7 +156,7 @@ const Messages: React.FC = () => {
         text: newMessage.trim()
       };
       
-      const result = await sendMessage(messageData);
+      const result = await sendMessage(user.uid, messageData);
       if (result.success) {
         // Add message to local state immediately for optimistic UI
         const newMessageObj: Message & { id: string } = {
@@ -208,7 +200,7 @@ const Messages: React.FC = () => {
     if (!confirm('Are you sure you want to delete this chat? This action cannot be undone.')) return;
     
     try {
-      const result = await deleteChat(chatId);
+      const result = await deleteChat(user!.uid, chatId);
       if (result.success) {
         if (selectedChat?.id === chatId) {
           setSelectedChat(null);
@@ -229,7 +221,7 @@ const Messages: React.FC = () => {
     
     try {
       const updatedMembers = [...selectedChat.members, ...memberUids];
-      const result = await updateChat(selectedChat.id, { members: updatedMembers });
+      const result = await updateChat(user!.uid, selectedChat.id, { members: updatedMembers });
       
       if (result.success) {
         // Update local state
@@ -255,7 +247,7 @@ const Messages: React.FC = () => {
     
     try {
       const updatedMembers = selectedChat.members.filter(uid => uid !== memberUid);
-      const result = await updateChat(selectedChat.id, { members: updatedMembers });
+      const result = await updateChat(user!.uid, selectedChat.id, { members: updatedMembers });
       
       if (result.success) {
         // Update local state

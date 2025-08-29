@@ -68,9 +68,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (userSnap.exists()) {
           const userData = userSnap.data() as User;
           
-          // Automatic fix for PRO users missing proId
-          if (userData.role === 'PRO' && (!userData.proId || userData.proId !== userData.uid)) {
-            console.log('🔄 Auto-fixing PRO user missing proId:', userData.uid);
+          // Automatic fix for PRO users missing proId (only if proStatus is active)
+          if (userData.role === 'PRO' && userData.proStatus === 'active' && (!userData.proId || userData.proId !== userData.uid)) {
+            console.log('🔄 Auto-fixing active PRO user missing proId:', userData.uid);
             
             try {
               // Update the user document to set proId to their uid

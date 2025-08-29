@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
-import { getAthletePackages } from '../../services/packages';
+import { getUserPackagePurchases } from '../../services/packages';
 import { getEventsByAttendee } from '../../services/calendar';
 import { getProgramsByAthlete } from '../../services/programs';
 import type { Event, PackagePurchase, Program } from '../../types';
@@ -47,7 +47,7 @@ export const AthleteAnalytics: React.FC<AthleteAnalyticsProps> = ({ userId }) =>
       setLoading(true);
       
       // Load packages, events, and programs data
-      const packagesResult = await getAthletePackages(userId);
+      const packagesResult = await getUserPackagePurchases(userId);
       const eventsResult = await getEventsByAttendee(userId);
       const programsResult = await getProgramsByAthlete(userId);
 

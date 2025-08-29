@@ -13,10 +13,10 @@ import {
 import { db } from '../config/firebase';
 import type { TrainingPackage, PackagePurchase, PackageStatus } from '../types';
 
-// ===== PACKAGE MANAGEMENT (PRO USERS) =====
+// ===== PACKAGE MANAGEMENT (PRO USERS) - Now using user subcollections =====
 
-// Create a new training package
-export const createTrainingPackage = async (packageData: Omit<TrainingPackage, 'id' | 'createdAt' | 'updatedAt' | 'currentPurchases'>) => {
+// Create a new training package in user's subcollection
+export const createTrainingPackage = async (userId: string, packageData: Omit<TrainingPackage, 'id' | 'createdAt' | 'updatedAt' | 'currentPurchases'>) => {
   try {
     // Validate required fields
     if (!packageData.proId) {
@@ -30,7 +30,8 @@ export const createTrainingPackage = async (packageData: Omit<TrainingPackage, '
     
     console.log('Clean package data:', cleanPackageData);
     
-    const packageRef = await addDoc(collection(db, 'trainingPackages'), {
+    const userPackagesRef = collection(db, 'users', userId, 'trainingPackages');
+    const packageRef = await addDoc(userPackagesRef, {
       ...cleanPackageData,
       currentPurchases: 0,
       createdAt: serverTimestamp(),
@@ -47,15 +48,11 @@ export const createTrainingPackage = async (packageData: Omit<TrainingPackage, '
   }
 };
 
-// Get packages by PRO
-export const getPackagesByPro = async (proId: string) => {
+// Get packages for a specific user
+export const getUserPackages = async (userId: string) => {
   try {
-    const packagesRef = collection(db, 'trainingPackages');
-    const q = query(
-      packagesRef, 
-      where('proId', '==', proId)
-    );
-    const querySnapshot = await getDocs(q);
+    const userPackagesRef = collection(db, 'users', userId, 'trainingPackages');
+    const querySnapshot = await getDocs(userPackagesRef);
     
     const packages: Array<TrainingPackage & { id: string }> = [];
     querySnapshot.forEach((doc) => {
@@ -67,15 +64,26 @@ export const getPackagesByPro = async (proId: string) => {
     
     return { success: true, packages };
   } catch (error) {
+    console.error('Error fetching user packages:', error);
+    return { success: false, error };
+  }
+};
+
+// Get packages by PRO - needs redesign for subcollections
+export const getPackagesByPro = async (proId: string) => {
+  try {
+    console.warn(`getPackagesByPro for ${proId} needs to be redesigned for subcollection architecture`);
+    return { success: false, error: 'Method needs redesign for subcollections' };
+  } catch (error) {
     console.error('Error fetching packages by PRO:', error);
     return { success: false, error };
   }
 };
 
-// Get package by ID
-export const getPackageById = async (packageId: string) => {
+// Get package by ID from user's subcollection
+export const getPackageById = async (userId: string, packageId: string) => {
   try {
-    const packageRef = doc(db, 'trainingPackages', packageId);
+    const packageRef = doc(db, 'users', userId, 'trainingPackages', packageId);
     const packageSnap = await getDoc(packageRef);
     
     if (packageSnap.exists()) {
@@ -89,17 +97,12 @@ export const getPackageById = async (packageId: string) => {
   }
 };
 
-// Update package
-export const updateTrainingPackage = async (packageId: string, updates: Partial<TrainingPackage>) => {
+// Update package in user's subcollection
+export const updateTrainingPackage = async (userId: string, packageId: string, updates: Partial<TrainingPackage>) => {
   try {
-    // Clean up the updates to remove undefined values
-    const cleanUpdates = Object.fromEntries(
-      Object.entries(updates).filter(([, value]) => value !== undefined)
-    );
-    
-    const packageRef = doc(db, 'trainingPackages', packageId);
+    const packageRef = doc(db, 'users', userId, 'trainingPackages', packageId);
     await updateDoc(packageRef, {
-      ...cleanUpdates,
+      ...updates,
       updatedAt: serverTimestamp(),
     });
     return { success: true };
@@ -109,10 +112,10 @@ export const updateTrainingPackage = async (packageId: string, updates: Partial<
   }
 };
 
-// Delete package
-export const deleteTrainingPackage = async (packageId: string) => {
+// Delete package from user's subcollection
+export const deleteTrainingPackage = async (userId: string, packageId: string) => {
   try {
-    const packageRef = doc(db, 'trainingPackages', packageId);
+    const packageRef = doc(db, 'users', userId, 'trainingPackages', packageId);
     await deleteDoc(packageRef);
     return { success: true };
   } catch (error) {
@@ -121,13 +124,12 @@ export const deleteTrainingPackage = async (packageId: string) => {
   }
 };
 
-// Get packages by status
-export const getPackagesByStatus = async (proId: string, status: PackageStatus) => {
+// Get packages by status for a user
+export const getPackagesByStatus = async (userId: string, status: PackageStatus) => {
   try {
-    const packagesRef = collection(db, 'trainingPackages');
+    const userPackagesRef = collection(db, 'users', userId, 'trainingPackages');
     const q = query(
-      packagesRef, 
-      where('proId', '==', proId),
+      userPackagesRef,
       where('status', '==', status)
     );
     const querySnapshot = await getDocs(q);
@@ -147,15 +149,14 @@ export const getPackagesByStatus = async (proId: string, status: PackageStatus) 
   }
 };
 
-// ===== PACKAGE PURCHASES (ATHLETES) =====
+// ===== PACKAGE PURCHASES (ATHLETES) - Now using user subcollections =====
 
-// Get available packages for athletes to browse
-export const getAvailablePackages = async (proId: string) => {
+// Get available packages for athletes to browse (from a specific PRO user)
+export const getAvailablePackages = async (proUserId: string) => {
   try {
-    const packagesRef = collection(db, 'trainingPackages');
+    const proPackagesRef = collection(db, 'users', proUserId, 'trainingPackages');
     const q = query(
-      packagesRef, 
-      where('proId', '==', proId),
+      proPackagesRef,
       where('status', '==', 'active')
     );
     const querySnapshot = await getDocs(q);
@@ -179,10 +180,11 @@ export const getAvailablePackages = async (proId: string) => {
   }
 };
 
-// Create package purchase record
-export const createPackagePurchase = async (purchaseData: Omit<PackagePurchase, 'id' | 'createdAt' | 'updatedAt'>) => {
+// Create package purchase record in athlete's subcollection
+export const createPackagePurchase = async (athleteUserId: string, purchaseData: Omit<PackagePurchase, 'id' | 'createdAt' | 'updatedAt'>) => {
   try {
-    const purchaseRef = await addDoc(collection(db, 'packagePurchases'), {
+    const userPurchasesRef = collection(db, 'users', athleteUserId, 'packagePurchases');
+    const purchaseRef = await addDoc(userPurchasesRef, {
       ...purchaseData,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -195,15 +197,11 @@ export const createPackagePurchase = async (purchaseData: Omit<PackagePurchase, 
   }
 };
 
-// Get athlete's purchased packages
-export const getAthletePackages = async (athleteUid: string) => {
+// Get package purchases for a specific user (athlete)
+export const getUserPackagePurchases = async (userId: string) => {
   try {
-    const purchasesRef = collection(db, 'packagePurchases');
-    const q = query(
-      purchasesRef, 
-      where('athleteUid', '==', athleteUid)
-    );
-    const querySnapshot = await getDocs(q);
+    const userPurchasesRef = collection(db, 'users', userId, 'packagePurchases');
+    const querySnapshot = await getDocs(userPurchasesRef);
     
     const purchases: Array<PackagePurchase & { id: string }> = [];
     querySnapshot.forEach((doc) => {
@@ -211,19 +209,41 @@ export const getAthletePackages = async (athleteUid: string) => {
     });
     
     // Sort by purchase date (newest first)
-    purchases.sort((a, b) => b.purchaseDate.toDate().getTime() - a.purchaseDate.toDate().getTime());
+    purchases.sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime());
     
     return { success: true, purchases };
   } catch (error) {
-    console.error('Error fetching athlete packages:', error);
+    console.error('Error fetching user package purchases:', error);
     return { success: false, error };
   }
 };
 
-// Update package purchase (e.g., mark session as used)
-export const updatePackagePurchase = async (purchaseId: string, updates: Partial<PackagePurchase>) => {
+// Get package purchases by athlete (alias for getUserPackagePurchases)
+export const getPackagePurchasesByAthlete = async (athleteUserId: string) => {
+  return await getUserPackagePurchases(athleteUserId);
+};
+
+// Get package purchase by ID from user's subcollection
+export const getPackagePurchaseById = async (userId: string, purchaseId: string) => {
   try {
-    const purchaseRef = doc(db, 'packagePurchases', purchaseId);
+    const purchaseRef = doc(db, 'users', userId, 'packagePurchases', purchaseId);
+    const purchaseSnap = await getDoc(purchaseRef);
+    
+    if (purchaseSnap.exists()) {
+      return { success: true, purchase: { id: purchaseSnap.id, ...purchaseSnap.data() } };
+    } else {
+      return { success: false, error: 'Purchase not found' };
+    }
+  } catch (error) {
+    console.error('Error fetching package purchase:', error);
+    return { success: false, error };
+  }
+};
+
+// Update package purchase in user's subcollection
+export const updatePackagePurchase = async (userId: string, purchaseId: string, updates: Partial<PackagePurchase>) => {
+  try {
+    const purchaseRef = doc(db, 'users', userId, 'packagePurchases', purchaseId);
     await updateDoc(purchaseRef, {
       ...updates,
       updatedAt: serverTimestamp(),
@@ -231,23 +251,6 @@ export const updatePackagePurchase = async (purchaseId: string, updates: Partial
     return { success: true };
   } catch (error) {
     console.error('Error updating package purchase:', error);
-    return { success: false, error };
-  }
-};
-
-// Get package purchase by ID
-export const getPackagePurchaseById = async (purchaseId: string) => {
-  try {
-    const purchaseRef = doc(db, 'packagePurchases', purchaseId);
-    const purchaseSnap = await getDoc(purchaseRef);
-    
-    if (purchaseSnap.exists()) {
-      return { success: true, purchase: { id: purchaseSnap.id, ...purchaseSnap.data() } };
-    } else {
-      return { success: false, error: 'Package purchase not found' };
-    }
-  } catch (error) {
-    console.error('Error fetching package purchase:', error);
     return { success: false, error };
   }
 };

@@ -12,10 +12,11 @@ import {
 import { db } from '../config/firebase';
 import type { Payment, PaymentStatus } from '../types';
 
-// Payment Management
-export const createPayment = async (paymentData: Omit<Payment, 'createdAt'>) => {
+// Payment Management - Now using user subcollections
+export const createPayment = async (userId: string, paymentData: Omit<Payment, 'createdAt'>) => {
   try {
-    const paymentRef = await addDoc(collection(db, 'payments'), {
+    const userPaymentsRef = collection(db, 'users', userId, 'payments');
+    const paymentRef = await addDoc(userPaymentsRef, {
       ...paymentData,
       createdAt: serverTimestamp(),
     });
@@ -27,9 +28,9 @@ export const createPayment = async (paymentData: Omit<Payment, 'createdAt'>) => 
   }
 };
 
-export const getPayment = async (paymentId: string) => {
+export const getPayment = async (userId: string, paymentId: string) => {
   try {
-    const paymentRef = doc(db, 'payments', paymentId);
+    const paymentRef = doc(db, 'users', userId, 'payments', paymentId);
     const paymentSnap = await getDoc(paymentRef);
     
     if (paymentSnap.exists()) {
@@ -43,9 +44,9 @@ export const getPayment = async (paymentId: string) => {
   }
 };
 
-export const updatePayment = async (paymentId: string, updates: Partial<Payment>) => {
+export const updatePayment = async (userId: string, paymentId: string, updates: Partial<Payment>) => {
   try {
-    const paymentRef = doc(db, 'payments', paymentId);
+    const paymentRef = doc(db, 'users', userId, 'payments', paymentId);
     await updateDoc(paymentRef, updates);
     return { success: true };
   } catch (error) {
@@ -54,67 +55,55 @@ export const updatePayment = async (paymentId: string, updates: Partial<Payment>
   }
 };
 
-// Get payments by PRO
-export const getPaymentsByPro = async (proId: string) => {
+// Get payments for a specific user
+export const getUserPayments = async (userId: string) => {
   try {
-    const paymentsRef = collection(db, 'payments');
-    const q = query(
-      paymentsRef, 
-      where('proId', '==', proId)
-      // Removed orderBy to avoid composite index requirement
-    );
-    const querySnapshot = await getDocs(q);
+    const userPaymentsRef = collection(db, 'users', userId, 'payments');
+    const querySnapshot = await getDocs(userPaymentsRef);
     
     const payments: Array<Payment & { id: string }> = [];
     querySnapshot.forEach((doc) => {
       payments.push({ id: doc.id, ...doc.data() } as Payment & { id: string });
     });
     
-    // Sort client-side instead
+    // Sort client-side by creation date (newest first)
     payments.sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime());
     
     return { success: true, payments };
+  } catch (error) {
+    console.error('Error fetching user payments:', error);
+    return { success: false, error };
+  }
+};
+
+// Get payments by PRO - needs redesign for subcollections
+export const getPaymentsByPro = async (proId: string) => {
+  try {
+    console.warn(`getPaymentsByPro for ${proId} needs to be redesigned for subcollection architecture`);
+    return { success: false, error: 'Method needs redesign for subcollections' };
   } catch (error) {
     console.error('Error fetching payments by PRO:', error);
     return { success: false, error };
   }
 };
 
-// Get payments by payer
-export const getPaymentsByPayer = async (payerUid: string) => {
+// Get payments by payer (for a specific user)
+export const getPaymentsByPayer = async (payerUserId: string) => {
   try {
-    const paymentsRef = collection(db, 'payments');
-    const q = query(
-      paymentsRef, 
-      where('payerUid', '==', payerUid)
-      // Removed orderBy to avoid composite index requirement
-    );
-    const querySnapshot = await getDocs(q);
-    
-    const payments: Array<Payment & { id: string }> = [];
-    querySnapshot.forEach((doc) => {
-      payments.push({ id: doc.id, ...doc.data() } as Payment & { id: string });
-    });
-    
-    // Sort client-side instead
-    payments.sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime());
-    
-    return { success: true, payments };
+    return await getUserPayments(payerUserId);
   } catch (error) {
     console.error('Error fetching payments by payer:', error);
     return { success: false, error };
   }
 };
 
-// Get payments by status
-export const getPaymentsByStatus = async (proId: string, status: PaymentStatus) => {
+// Get payments by status for a user
+export const getPaymentsByStatus = async (userId: string, status: PaymentStatus) => {
   try {
-    const paymentsRef = collection(db, 'payments');
+    const userPaymentsRef = collection(db, 'users', userId, 'payments');
     const q = query(
-      paymentsRef, 
-      where('proId', '==', proId),
+      userPaymentsRef,
       where('status', '==', status)
-      // Removed orderBy to avoid composite index requirement
     );
     const querySnapshot = await getDocs(q);
     
@@ -123,7 +112,7 @@ export const getPaymentsByStatus = async (proId: string, status: PaymentStatus) 
       payments.push({ id: doc.id, ...doc.data() } as Payment & { id: string });
     });
     
-    // Sort client-side instead
+    // Sort client-side by creation date (newest first)
     payments.sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime());
     
     return { success: true, payments };
@@ -133,180 +122,140 @@ export const getPaymentsByStatus = async (proId: string, status: PaymentStatus) 
   }
 };
 
-// Get payment analytics for PRO
-export const getPaymentAnalytics = async (proId: string) => {
+// Get payment analytics for a user
+export const getPaymentAnalytics = async (userId: string) => {
   try {
-    const paymentsRef = collection(db, 'payments');
-    const q = query(
-      paymentsRef, 
-      where('proId', '==', proId),
-      where('status', '==', 'succeeded')
-    );
-    const querySnapshot = await getDocs(q);
+    const payments = await getUserPayments(userId);
+    
+    if (!payments.success || !payments.payments) {
+      return payments;
+    }
+    
+    const now = new Date();
+    const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const currentYear = new Date(now.getFullYear(), 0, 1);
     
     let totalRevenue = 0;
-    let totalPayments = 0;
-    const monthlyRevenue: { [key: string]: number } = {};
+    let monthlyRevenue = 0;
+    let lastMonthRevenue = 0;
+    let yearlyRevenue = 0;
+    let successfulPayments = 0;
+    let failedPayments = 0;
+    let pendingPayments = 0;
     
-    querySnapshot.forEach((doc) => {
-      const payment = doc.data() as Payment;
-      totalRevenue += payment.amount;
-      totalPayments += 1;
+    payments.payments.forEach((payment) => {
+      const paymentDate = payment.createdAt.toDate();
       
-      // Group by month
-      const date = payment.createdAt.toDate ? payment.createdAt.toDate() : new Date();
-      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      monthlyRevenue[monthKey] = (monthlyRevenue[monthKey] || 0) + payment.amount;
+      if (payment.status === 'succeeded') {
+        totalRevenue += payment.amount;
+        successfulPayments++;
+        
+        if (paymentDate >= currentMonth) {
+          monthlyRevenue += payment.amount;
+        }
+        
+        if (paymentDate >= lastMonth && paymentDate < currentMonth) {
+          lastMonthRevenue += payment.amount;
+        }
+        
+        if (paymentDate >= currentYear) {
+          yearlyRevenue += payment.amount;
+        }
+      } else if (payment.status === 'failed') {
+        failedPayments++;
+      } else if (payment.status === 'processing' || payment.status === 'requires_action') {
+        pendingPayments++;
+      }
     });
+    
+    const monthlyGrowth = lastMonthRevenue > 0 
+      ? ((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 
+      : 0;
+    
+    return {
+      success: true,
+      analytics: {
+        totalRevenue,
+        monthlyRevenue,
+        lastMonthRevenue,
+        yearlyRevenue,
+        monthlyGrowth,
+        successfulPayments,
+        failedPayments,
+        pendingPayments,
+        totalPayments: payments.payments.length,
+        averagePayment: successfulPayments > 0 ? totalRevenue / successfulPayments : 0
+      }
+    };
+  } catch (error) {
+    console.error('Error getting payment analytics:', error);
+    return { success: false, error };
+  }
+};
+
+// Get payment history with pagination for a user
+export const getPaymentHistory = async (userId: string, limit = 20, startDate?: Date, endDate?: Date) => {
+  try {
+    const userPaymentsRef = collection(db, 'users', userId, 'payments');
+    let q = query(userPaymentsRef);
+    
+    // Add date filters if provided
+    if (startDate) {
+      q = query(q, where('createdAt', '>=', startDate));
+    }
+    if (endDate) {
+      q = query(q, where('createdAt', '<=', endDate));
+    }
+    
+    const querySnapshot = await getDocs(q);
+    
+    const payments: Array<Payment & { id: string }> = [];
+    querySnapshot.forEach((doc) => {
+      payments.push({ id: doc.id, ...doc.data() } as Payment & { id: string });
+    });
+    
+    // Sort and limit client-side
+    payments.sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime());
+    const limitedPayments = payments.slice(0, limit);
     
     return { 
       success: true, 
-      totalRevenue,
-      totalPayments,
-      monthlyRevenue,
-      averagePayment: totalPayments > 0 ? totalRevenue / totalPayments : 0
+      payments: limitedPayments,
+      hasMore: payments.length > limit,
+      total: payments.length
     };
   } catch (error) {
-    console.error('Error fetching payment analytics:', error);
+    console.error('Error fetching payment history:', error);
     return { success: false, error };
   }
 };
 
-// Update payment status
-export const updatePaymentStatus = async (paymentId: string, status: PaymentStatus) => {
+// Get payments by date range for a user
+export const getPaymentsByDateRange = async (userId: string, startDate: Date, endDate: Date) => {
   try {
-    const paymentRef = doc(db, 'payments', paymentId);
-    await updateDoc(paymentRef, { status });
-    return { success: true };
-  } catch (error) {
-    console.error('Error updating payment status:', error);
-    return { success: false, error };
-  }
-};
-
-// Get recent payments
-export const getRecentPayments = async (proId: string, limit = 10) => {
-  try {
-    const paymentsRef = collection(db, 'payments');
-    const q = query(
-      paymentsRef, 
-      where('proId', '==', proId)
-      // Removed orderBy to avoid composite index requirement
-    );
-    const querySnapshot = await getDocs(q);
-    
-    const payments: Array<Payment & { id: string }> = [];
-    querySnapshot.forEach((doc) => {
-      payments.push({ id: doc.id, ...doc.data() } as Payment & { id: string });
-    });
-    
-    // Sort client-side and limit
-    payments.sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime());
-    
-    return { success: true, payments: payments.slice(0, limit) };
-  } catch (error) {
-    console.error('Error fetching recent payments:', error);
-    return { success: false, error };
-  }
-};
-
-// ===== NEW PAYMENT FUNCTIONS =====
-
-// Create training session payment
-export const createTrainingSessionPayment = async (paymentData: {
-  proId: string;
-  payerUid: string;
-  amount: number;
-  currency: string;
-  sessionType: string;
-  sessionDate: Date;
-  description?: string;
-}) => {
-  try {
-    const paymentRef = await addDoc(collection(db, 'payments'), {
-      ...paymentData,
-      stripePaymentIntentId: '', // Will be set after Stripe payment
-      status: 'processing' as PaymentStatus,
-      createdAt: serverTimestamp(),
-    });
-    
-    return { success: true, paymentId: paymentRef.id };
-  } catch (error) {
-    console.error('Error creating training session payment:', error);
-    return { success: false, error };
-  }
-};
-
-// Create subscription payment
-export const createSubscriptionPayment = async (paymentData: {
-  proId: string;
-  payerUid: string;
-  amount: number;
-  currency: string;
-  subscriptionType: string;
-  interval: 'monthly' | 'quarterly' | 'yearly';
-  description?: string;
-}) => {
-  try {
-    const paymentRef = await addDoc(collection(db, 'payments'), {
-      ...paymentData,
-      stripePaymentIntentId: '', // Will be set after Stripe payment
-      status: 'processing' as PaymentStatus,
-      createdAt: serverTimestamp(),
-    });
-    
-    return { success: true, paymentId: paymentRef.id };
-  } catch (error) {
-    console.error('Error creating subscription payment:', error);
-    return { success: false, error };
-  }
-};
-
-// Get payments by date range
-export const getPaymentsByDateRange = async (proId: string, startDate: Date, endDate: Date) => {
-  try {
-    const paymentsRef = collection(db, 'payments');
-    const q = query(
-      paymentsRef, 
-      where('proId', '==', proId),
-      where('createdAt', '>=', startDate),
-      where('createdAt', '<=', endDate)
-    );
-    const querySnapshot = await getDocs(q);
-    
-    const payments: Array<Payment & { id: string }> = [];
-    querySnapshot.forEach((doc) => {
-      payments.push({ id: doc.id, ...doc.data() } as Payment & { id: string });
-    });
-    
-    // Sort client-side
-    payments.sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime());
-    
-    return { success: true, payments };
+    return await getPaymentHistory(userId, 1000, startDate, endDate);
   } catch (error) {
     console.error('Error fetching payments by date range:', error);
     return { success: false, error };
   }
 };
 
-// Get payment summary for dashboard
-export const getPaymentSummary = async (proId: string) => {
+// Get payment summary for dashboard for a user
+export const getPaymentSummary = async (userId: string) => {
   try {
-    const paymentsRef = collection(db, 'payments');
-    const q = query(
-      paymentsRef, 
-      where('proId', '==', proId)
-    );
-    const querySnapshot = await getDocs(q);
+    const payments = await getUserPayments(userId);
+    
+    if (!payments.success || !payments.payments) {
+      return payments;
+    }
     
     let totalRevenue = 0;
     let totalPayments = 0;
     let pendingPayments = 0;
     let failedPayments = 0;
     
-    querySnapshot.forEach((doc) => {
-      const payment = doc.data() as Payment;
-      
+    payments.payments.forEach((payment) => {
       if (payment.status === 'succeeded') {
         totalRevenue += payment.amount;
         totalPayments += 1;

@@ -5,7 +5,7 @@ import type { UserRole } from '../types';
 import { getUsersByRole } from '../services/firebase';
 import { getUpcomingEvents } from '../services/calendar';
 import { getPaymentsByPro, getPaymentsByPayer } from '../services/payments';
-import { getPackagesByPro, getAthletePackages } from '../services/packages';
+import { getUserPackages, getUserPackagePurchases } from '../services/packages';
 
 interface DashboardStats {
   staffCount: number;
@@ -188,7 +188,7 @@ export const Dashboard: React.FC = () => {
         eventsResult.events?.filter(e => e.attendees?.includes(user.uid)) || [] : [];
 
       // Load athlete's package purchases
-      const packagesResult = await getAthletePackages(user.uid);
+              const packagesResult = await getUserPackagePurchases(user.uid);
       const activePackages = packagesResult.success ? 
         packagesResult.purchases?.filter(p => p.status === 'active').length || 0 : 0;
 

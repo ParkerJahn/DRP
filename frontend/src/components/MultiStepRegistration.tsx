@@ -177,7 +177,7 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
       }
 
       // Create the user profile in Firestore
-      const userProfile = {
+      const baseProfile = {
         uid: newUser.uid,
         email: registrationData.email || newUser.email,
         displayName: `${registrationData.firstName} ${registrationData.lastName}`,
@@ -185,13 +185,17 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
         lastName: registrationData.lastName,
         phoneNumber: registrationData.phoneNumber,
         role: registrationData.role,
-        status: 'active',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         proId: null, // Will be set when they join a team
         isEmailVerified: newUser.emailVerified || false,
         photoURL: newUser.photoURL || null
       };
+
+      // Add proStatus for PRO users
+      const userProfile = registrationData.role === 'PRO' 
+        ? { ...baseProfile, proStatus: 'inactive' as const }
+        : baseProfile;
 
       await setDoc(doc(db, 'users', newUser.uid), userProfile);
 

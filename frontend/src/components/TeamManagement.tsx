@@ -3,7 +3,7 @@ import { useAuth } from '../hooks/useAuth';
 import { db } from '../config/firebase';
 import { collection, query, where, getDocs, getDoc, doc, setDoc } from 'firebase/firestore';
 import QRCode from 'qrcode';
-import { getTeamAvailabilitySlots } from '../services/availability';
+import { getUserAvailabilitySlots } from '../services/availability';
 import { removeTeamMember } from '../services/teamManagement';
 import type { AvailabilitySlot } from '../services/availability';
 
@@ -73,11 +73,9 @@ function TeamManagement() {
     const loadMemberAvailability = async (userId: string) => {
       try {
         setLoadingAvailability(true);
-        const result = await getTeamAvailabilitySlots(user?.proId || user?.uid || '');
+        const result = await getUserAvailabilitySlots(userId);
         if (result.success && result.slots) {
-          // Filter availability slots for the specific staff member
-          const memberSlots = result.slots.filter(slot => slot.userId === userId);
-          setAvailabilitySlots(memberSlots);
+          setAvailabilitySlots(result.slots);
         }
       } catch (error) {
         console.error('Error loading availability:', error);
@@ -1119,6 +1117,7 @@ function TeamManagement() {
           )}
         </div>
       </div>
+
 
       {/* Invite Links Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

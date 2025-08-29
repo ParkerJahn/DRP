@@ -66,7 +66,7 @@ export class InputValidator {
       return { isValid: false, sanitized: '', error: `${fieldName} is required` };
     }
 
-    const sanitized = this.sanitizeText(name).trim();
+    const sanitized = InputValidator.sanitizeText(name).trim();
     
     if (sanitized.length < 2) {
       return { isValid: false, sanitized: '', error: `${fieldName} must be at least 2 characters long` };
@@ -109,7 +109,7 @@ export class InputValidator {
       return { isValid: false, sanitized: '', error: 'Content is required' };
     }
 
-    const sanitized = this.sanitizeText(content).trim();
+    const sanitized = InputValidator.sanitizeText(content).trim();
     
     if (sanitized.length < 1) {
       return { isValid: false, sanitized: '', error: 'Content cannot be empty' };

@@ -11,7 +11,7 @@ import { getUsersByRole } from '../services/firebase';
 import { 
   createAvailabilitySlot, 
   getAvailabilitySlots, 
-  getTeamAvailabilitySlots, 
+  getUserAvailabilitySlots, 
   updateAvailabilitySlot, 
   deleteAvailabilitySlot
 } from '../services/availability';
@@ -127,7 +127,7 @@ const Calendar: React.FC = () => {
       if (user.role === 'PRO') {
         // PRO sees all team availability
         try {
-          const availabilityResult = await getTeamAvailabilitySlots(user.uid);
+          const availabilityResult = await getUserAvailabilitySlots(user.uid);
           result = {
             success: availabilityResult.success,
             slots: availabilityResult.slots,
@@ -151,7 +151,7 @@ const Calendar: React.FC = () => {
       } else if (user.role === 'ATHLETE') {
         // ATHLETES see team availability for booking
         try {
-          const availabilityResult = await getTeamAvailabilitySlots(user.proId || user.uid);
+          const availabilityResult = await getUserAvailabilitySlots(user.proId || user.uid);
           result = {
             success: availabilityResult.success,
             slots: availabilityResult.slots,

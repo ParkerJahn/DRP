@@ -89,6 +89,11 @@ const BillingSubscribe: React.FC = () => {
         });
         
         console.log('✅ PRO account activated successfully via free access!');
+        
+        // Refresh user data to get updated proStatus and proId
+        console.log('🔄 Refreshing user data after activation...');
+        await refreshUser();
+        
         alert('🎉 PRO account activated! You will now be redirected to your dashboard.');
         
         // Set redirecting state to prevent loops

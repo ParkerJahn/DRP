@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { 
-  getPackagesByPro, 
+  getUserPackages,
   getAvailablePackages, 
-  getAthletePackages,
+  getUserPackagePurchases,
   getPackageAnalytics,
   createTrainingPackage,
   updateTrainingPackage,
@@ -57,13 +57,13 @@ const Packages: React.FC = () => {
       let result;
       
       if (user.role === 'PRO') {
-        result = await getPackagesByPro(user.proId || user.uid);
+        result = await getUserPackages(user.proId || user.uid);
       } else {
         // Athletes see available packages from their PRO
         result = await getAvailablePackages(user.proId || '');
       }
       
-      if (result.success) {
+      if (result.success && 'packages' in result) {
         setPackages(result.packages || []);
       } else {
         console.error('Failed to load packages:', result.error);
@@ -128,7 +128,7 @@ const Packages: React.FC = () => {
     if (!user || user.role !== 'ATHLETE') return;
     
     try {
-      const result = await getAthletePackages(user.uid);
+      const result = await getUserPackagePurchases(user.uid);
       if (result.success) {
         setAthletePackages(result.purchases || []);
       }
@@ -150,7 +150,7 @@ const Packages: React.FC = () => {
         console.log('Fixed proId to use user uid:', packageData.proId);
       }
       
-      const result = await createTrainingPackage(packageData);
+      const result = await createTrainingPackage(user?.uid || '', packageData);
       if (result.success) {
         setIsCreatingPackage(false);
         loadPackages();
@@ -167,7 +167,7 @@ const Packages: React.FC = () => {
 
   const handleUpdatePackage = async (packageId: string, updates: Partial<TrainingPackage>) => {
     try {
-      const result = await updateTrainingPackage(packageId, updates);
+      const result = await updateTrainingPackage(user?.uid || '', packageId, updates);
       if (result.success) {
         setIsEditingPackage(null);
         loadPackages();
@@ -187,7 +187,7 @@ const Packages: React.FC = () => {
     }
 
     try {
-      const result = await deleteTrainingPackage(packageId);
+      const result = await deleteTrainingPackage(user?.uid || '', packageId);
       if (result.success) {
         loadPackages();
         loadPackageAnalytics();

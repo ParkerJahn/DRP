@@ -1,11 +1,3 @@
-/**
- * Import function triggers from their respective submodules:
- *
- * import {onCall} from "firebase-functions/v2/https";
- * import {onDocumentWritten} from "firebase-functions/v2/firestore";
- *
- * See a full list of supported triggers at https://firebase.google.com/docs/functions
- */
 
 import {setGlobalOptions} from "firebase-functions";
 import {onRequest, onCall} from "firebase-functions/v2/https";
@@ -93,7 +85,7 @@ async function validateInviteAndSeats(proId: string, role: string): Promise<{ va
     }
 
     const proUserData = proUserDoc.data();
-    if (proUserData?.proStatus !== 'inactive') {
+    if (proUserData?.proStatus !== 'active') {
       return { valid: false, message: 'PRO account is not active' };
     }
 
@@ -251,7 +243,7 @@ export const createTrainingSessionCheckout = onCall({
 
     // Verify the PRO exists and is active
     const proDoc = await db.collection('users').doc(proId).get();
-    if (!proDoc.exists || proDoc.data()?.proStatus !== 'active') {
+    if (!proDoc.exists || proDoc.data()?.proStatus !== 'inactive') {
       throw new Error('PRO account not found or inactive');
     }
 

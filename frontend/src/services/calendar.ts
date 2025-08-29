@@ -1,23 +1,25 @@
 import { 
   doc, 
   getDoc, 
+  getDocs, 
+  addDoc, 
   updateDoc, 
-  deleteDoc,
+  deleteDoc, 
   collection, 
   query, 
   where, 
-  getDocs,
+  orderBy, 
   serverTimestamp,
-  addDoc,
-  limit
+  Timestamp
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import type { Event, EventType } from '../types';
+import type { Event } from '../types';
 
-// Event Management
-export const createEvent = async (eventData: Omit<Event, 'createdAt' | 'updatedAt'>) => {
+// Event Management - Now using user subcollections
+export const createEvent = async (userId: string, eventData: Omit<Event, 'createdAt' | 'updatedAt'>) => {
   try {
-    const eventRef = await addDoc(collection(db, 'events'), {
+    const userEventsRef = collection(db, 'users', userId, 'events');
+    const eventRef = await addDoc(userEventsRef, {
       ...eventData,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -30,9 +32,9 @@ export const createEvent = async (eventData: Omit<Event, 'createdAt' | 'updatedA
   }
 };
 
-export const getEvent = async (eventId: string) => {
+export const getEvent = async (userId: string, eventId: string) => {
   try {
-    const eventRef = doc(db, 'events', eventId);
+    const eventRef = doc(db, 'users', userId, 'events', eventId);
     const eventSnap = await getDoc(eventRef);
     
     if (eventSnap.exists()) {
@@ -46,9 +48,9 @@ export const getEvent = async (eventId: string) => {
   }
 };
 
-export const updateEvent = async (eventId: string, updates: Partial<Event>) => {
+export const updateEvent = async (userId: string, eventId: string, updates: Partial<Event>) => {
   try {
-    const eventRef = doc(db, 'events', eventId);
+    const eventRef = doc(db, 'users', userId, 'events', eventId);
     await updateDoc(eventRef, {
       ...updates,
       updatedAt: serverTimestamp(),
@@ -60,9 +62,9 @@ export const updateEvent = async (eventId: string, updates: Partial<Event>) => {
   }
 };
 
-export const deleteEvent = async (eventId: string) => {
+export const deleteEvent = async (userId: string, eventId: string) => {
   try {
-    const eventRef = doc(db, 'events', eventId);
+    const eventRef = doc(db, 'users', userId, 'events', eventId);
     await deleteDoc(eventRef);
     return { success: true };
   } catch (error) {
@@ -71,15 +73,11 @@ export const deleteEvent = async (eventId: string) => {
   }
 };
 
-// Get events by PRO
-export const getEventsByPro = async (proId: string) => {
+// Get events for a specific user
+export const getUserEvents = async (userId: string) => {
   try {
-    const eventsRef = collection(db, 'events');
-    const q = query(
-      eventsRef, 
-      where('proId', '==', proId),
-      limit(100) // Add reasonable limit to control costs
-    );
+    const userEventsRef = collection(db, 'users', userId, 'events');
+    const q = query(userEventsRef, orderBy('startsAt', 'asc'));
     const querySnapshot = await getDocs(q);
     
     const events: Array<Event & { id: string }> = [];
@@ -88,20 +86,32 @@ export const getEventsByPro = async (proId: string) => {
     });
     
     return { success: true, events };
+  } catch (error) {
+    console.error('Error fetching user events:', error);
+    return { success: false, error };
+  }
+};
+
+// Get events by PRO - needs redesign for subcollections
+export const getEventsByPro = async (proId: string) => {
+  try {
+    console.warn(`getEventsByPro for ${proId} needs to be redesigned for subcollection architecture`);
+    return { success: false, error: 'Method needs redesign for subcollections' };
   } catch (error) {
     console.error('Error fetching events by PRO:', error);
     return { success: false, error };
   }
 };
 
-// Get events by attendee
-export const getEventsByAttendee = async (attendeeUid: string) => {
+// Get events by date range for a user
+export const getEventsByDateRange = async (userId: string, startDate: Timestamp, endDate: Timestamp) => {
   try {
-    const eventsRef = collection(db, 'events');
+    const userEventsRef = collection(db, 'users', userId, 'events');
     const q = query(
-      eventsRef, 
-      where('attendees', 'array-contains', attendeeUid)
-      // Removed orderBy to avoid composite index requirement
+      userEventsRef,
+      where('startsAt', '>=', startDate),
+      where('startsAt', '<=', endDate),
+      orderBy('startsAt', 'asc')
     );
     const querySnapshot = await getDocs(q);
     
@@ -110,25 +120,31 @@ export const getEventsByAttendee = async (attendeeUid: string) => {
       events.push({ id: doc.id, ...doc.data() } as Event & { id: string });
     });
     
-    // Sort client-side instead
-    events.sort((a, b) => a.startsAt.toDate().getTime() - b.startsAt.toDate().getTime());
-    
     return { success: true, events };
+  } catch (error) {
+    console.error('Error fetching events by date range:', error);
+    return { success: false, error };
+  }
+};
+
+// Get events by attendee (for a specific user)
+export const getEventsByAttendee = async (attendeeUserId: string) => {
+  try {
+    return await getUserEvents(attendeeUserId);
   } catch (error) {
     console.error('Error fetching events by attendee:', error);
     return { success: false, error };
   }
 };
 
-// Get events by type
-export const getEventsByType = async (proId: string, type: EventType) => {
+// Get events by type for a user
+export const getEventsByType = async (userId: string, eventType: Event['type']) => {
   try {
-    const eventsRef = collection(db, 'events');
+    const userEventsRef = collection(db, 'users', userId, 'events');
     const q = query(
-      eventsRef, 
-      where('proId', '==', proId),
-      where('type', '==', type)
-      // Removed orderBy to avoid composite index requirement
+      userEventsRef,
+      where('type', '==', eventType),
+      orderBy('startsAt', 'asc')
     );
     const querySnapshot = await getDocs(q);
     
@@ -136,123 +152,10 @@ export const getEventsByType = async (proId: string, type: EventType) => {
     querySnapshot.forEach((doc) => {
       events.push({ id: doc.id, ...doc.data() } as Event & { id: string });
     });
-    
-    // Sort client-side instead
-    events.sort((a, b) => a.startsAt.toDate().getTime() - b.startsAt.toDate().getTime());
     
     return { success: true, events };
   } catch (error) {
     console.error('Error fetching events by type:', error);
-    return { success: false, error };
-  }
-};
-
-// Get upcoming events
-export const getUpcomingEvents = async (proId: string, limit = 10) => {
-  try {
-    const now = new Date();
-    const eventsRef = collection(db, 'events');
-    const q = query(
-      eventsRef, 
-      where('proId', '==', proId),
-      where('startsAt', '>=', now)
-      // Removed orderBy to avoid composite index requirement
-    );
-    const querySnapshot = await getDocs(q);
-    
-    const events: Array<Event & { id: string }> = [];
-    querySnapshot.forEach((doc) => {
-      events.push({ id: doc.id, ...doc.data() } as Event & { id: string });
-    });
-    
-    // Sort client-side instead
-    events.sort((a, b) => a.startsAt.toDate().getTime() - b.startsAt.toDate().getTime());
-    
-    return { success: true, events: events.slice(0, limit) };
-  } catch (error) {
-    console.error('Error fetching upcoming events:', error);
-    return { success: false, error };
-  }
-};
-
-// Get events in date range
-export const getEventsInRange = async (proId: string, startDate: Date, endDate: Date) => {
-  try {
-    const eventsRef = collection(db, 'events');
-    const q = query(
-      eventsRef, 
-      where('proId', '==', proId),
-      where('startsAt', '>=', startDate),
-      where('startsAt', '<=', endDate)
-      // Removed orderBy to avoid composite index requirement
-    );
-    const querySnapshot = await getDocs(q);
-    
-    const events: Array<Event & { id: string }> = [];
-    querySnapshot.forEach((doc) => {
-      events.push({ id: doc.id, ...doc.data() } as Event & { id: string });
-    });
-    
-    // Sort client-side instead
-    events.sort((a, b) => a.startsAt.toDate().getTime() - b.startsAt.toDate().getTime());
-    
-    return { success: true, events };
-  } catch (error) {
-    console.error('Error fetching events in range:', error);
-    return { success: false, error };
-  }
-};
-
-// Add attendee to event
-export const addEventAttendee = async (eventId: string, attendeeUid: string) => {
-  try {
-    const eventRef = doc(db, 'events', eventId);
-    const eventSnap = await getDoc(eventRef);
-    
-    if (eventSnap.exists()) {
-      const event = eventSnap.data() as Event;
-      const attendees = event.attendees || [];
-      
-      if (!attendees.includes(attendeeUid)) {
-        attendees.push(attendeeUid);
-        await updateDoc(eventRef, {
-          attendees,
-          updatedAt: serverTimestamp(),
-        });
-      }
-      
-      return { success: true };
-    } else {
-      return { success: false, error: 'Event not found' };
-    }
-  } catch (error) {
-    console.error('Error adding attendee to event:', error);
-    return { success: false, error };
-  }
-};
-
-// Remove attendee from event
-export const removeEventAttendee = async (eventId: string, attendeeUid: string) => {
-  try {
-    const eventRef = doc(db, 'events', eventId);
-    const eventSnap = await getDoc(eventRef);
-    
-    if (eventSnap.exists()) {
-      const event = eventSnap.data() as Event;
-      const attendees = event.attendees || [];
-      const filteredAttendees = attendees.filter(uid => uid !== attendeeUid);
-      
-      await updateDoc(eventRef, {
-        attendees: filteredAttendees,
-        updatedAt: serverTimestamp(),
-      });
-      
-      return { success: true };
-    } else {
-      return { success: false, error: 'Event not found' };
-    }
-  } catch (error) {
-    console.error('Error removing attendee from event:', error);
     return { success: false, error };
   }
 }; 

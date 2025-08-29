@@ -144,7 +144,7 @@ export class EnhancedSanitizer {
       // Remove dangerous characters
       .replace(/[<>{}()[\]\\]/g, '')
       // Remove control characters
-      .replace(/[\x00-\x1F\x7F]/g, '')
+      .replace(/[\x7F]/g, '')
       // Remove zero-width characters
       .replace(/[\u200B-\u200D\uFEFF]/g, '')
       // Remove bidirectional override characters

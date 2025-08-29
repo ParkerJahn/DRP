@@ -1,0 +1,26 @@
+{
+  "name": "drp-data-migration",
+  "version": "1.0.0",
+  "description": "Data migration script for DRP from top-level collections to user subcollections",
+  "main": "migrate-to-subcollections.js",
+  "scripts": {
+    "migrate": "node migrate-to-subcollections.js",
+    "verify": "node -e \"require('./migrate-to-subcollections.js').verifyMigration()\"",
+    "cleanup": "node -e \"require('./migrate-to-subcollections.js').deleteOldCollections()\""
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": [
+    "firebase",
+    "firestore",
+    "migration",
+    "data-migration"
+  ],
+  "author": "",
+  "license": "ISC"
+} 

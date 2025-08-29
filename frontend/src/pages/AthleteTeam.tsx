@@ -3,7 +3,7 @@ import { useAuth } from '../hooks/useAuth';
 import { collection, query, where, getDocs, Timestamp, doc, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import SEO from '../components/SEO';
-import { getTeamAvailabilitySlots } from '../services/availability';
+import { getUserAvailabilitySlots } from '../services/availability';
 import type { AvailabilitySlot } from '../services/availability';
 
 interface TeamMember {
@@ -142,14 +142,9 @@ const AthleteTeam: React.FC = () => {
     const loadMemberAvailability = async (userId: string) => {
       try {
         setLoadingAvailability(true);
-        const userProId = user?.proId || proId;
-        if (userProId) {
-          const result = await getTeamAvailabilitySlots(userProId);
-          if (result.success && result.slots) {
-            // Filter availability slots for the specific member
-            const memberSlots = result.slots.filter(slot => slot.userId === userId);
-            setAvailabilitySlots(memberSlots);
-          }
+        const result = await getUserAvailabilitySlots(userId);
+        if (result.success && result.slots) {
+          setAvailabilitySlots(result.slots);
         }
       } catch (error) {
         console.error('Error loading availability:', error);

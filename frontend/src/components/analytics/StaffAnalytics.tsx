@@ -62,9 +62,9 @@ export const StaffAnalytics: React.FC<StaffAnalyticsProps> = ({ proId }) => {
       const eventsResult = await getEventsByPro(proId);
       const usersResult = await getUsersByRole(proId, 'ATHLETE');
 
-      if (eventsResult.success && usersResult.success) {
-        const events = eventsResult.events || [];
-        const users = usersResult.users || [];
+      if (eventsResult.success && 'events' in eventsResult && usersResult.success && 'users' in usersResult) {
+        const events = eventsResult.events as Array<ExtendedEvent> || [];
+        const users = usersResult.users as Array<UserData> || [];
         
         // Process session data
         const sessions = processSessionData(events);

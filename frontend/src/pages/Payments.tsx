@@ -46,7 +46,7 @@ const Payments: React.FC = () => {
         result = await getPaymentsByPayer(user.uid);
       }
       
-      if (result.success) {
+      if (result.success && 'payments' in result) {
         setPayments(result.payments || []);
       } else {
         console.error('Failed to load payments:', result.error);
@@ -65,7 +65,7 @@ const Payments: React.FC = () => {
     
     try {
       const result = await getPaymentSummary(user.proId || user.uid);
-      if (result.success) {
+      if (result.success && 'totalRevenue' in result) {
         setPaymentSummary({
           totalRevenue: result.totalRevenue || 0,
           totalPayments: result.totalPayments || 0,

@@ -76,11 +76,66 @@ export const getUserPayments = async (userId: string) => {
   }
 };
 
-// Get payments by PRO - needs redesign for subcollections
+// Get payments by PRO - redesigned for subcollection architecture
 export const getPaymentsByPro = async (proId: string) => {
   try {
-    console.warn(`getPaymentsByPro for ${proId} needs to be redesigned for subcollection architecture`);
-    return { success: false, error: 'Method needs redesign for subcollections' };
+    // First, get all users who belong to this PRO (including the PRO themselves)
+    const usersRef = collection(db, 'users');
+    const teamQuery = query(usersRef, where('proId', '==', proId));
+    const teamSnapshot = await getDocs(teamQuery);
+    
+    // Also explicitly include the PRO user themselves in case proId doesn't match their own uid
+    const proUserRef = doc(db, 'users', proId);
+    const proUserSnap = await getDoc(proUserRef);
+    
+    const userIds = new Set<string>();
+    
+    // Add team members
+    teamSnapshot.forEach((doc) => {
+      userIds.add(doc.id);
+    });
+    
+    // Add PRO user themselves if they exist and have PRO role
+    if (proUserSnap.exists()) {
+      const proUserData = proUserSnap.data();
+      if (proUserData?.role === 'PRO') {
+        userIds.add(proId);
+      }
+    }
+    
+    if (userIds.size === 0) {
+      return { success: true, payments: [] };
+    }
+    
+    // Get payments from each team member's subcollection
+    const allPayments: Array<Payment & { id: string; userId: string }> = [];
+    
+    for (const userId of userIds) {
+      try {
+        const userPaymentsRef = collection(db, 'users', userId, 'payments');
+        const paymentsSnapshot = await getDocs(userPaymentsRef);
+        
+        paymentsSnapshot.forEach((doc) => {
+          allPayments.push({ 
+            id: doc.id, 
+            userId: userId,
+            ...doc.data() 
+          } as Payment & { id: string; userId: string });
+        });
+      } catch (error) {
+        console.warn(`Error fetching payments for user ${userId}:`, error);
+        // Continue with other users even if one fails
+      }
+    }
+    
+    // Sort all payments by creation date (newest first)
+    allPayments.sort((a, b) => {
+      const aTime = a.createdAt?.toDate?.()?.getTime() || 0;
+      const bTime = b.createdAt?.toDate?.()?.getTime() || 0;
+      return bTime - aTime;
+    });
+    
+    return { success: true, payments: allPayments };
   } catch (error) {
     console.error('Error fetching payments by PRO:', error);
     return { success: false, error };

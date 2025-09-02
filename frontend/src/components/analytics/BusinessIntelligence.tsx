@@ -69,8 +69,8 @@ export const BusinessIntelligence: React.FC<BusinessIntelligenceProps> = ({ proI
       const paymentsResult = await getPaymentsByPro(proId);
       const athletesResult = await getUsersByRole(proId, 'ATHLETE');
 
-      if (paymentsResult.success && athletesResult.success) {
-        const payments = paymentsResult.payments || [];
+      if (paymentsResult.success && 'payments' in paymentsResult && athletesResult.success && 'users' in athletesResult) {
+        const payments = paymentsResult.payments as Payment[] || [];
         const athletes = athletesResult.users || [];
 
         // Process revenue trends

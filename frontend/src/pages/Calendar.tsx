@@ -10,8 +10,8 @@ import {
 import { getUsersByRole } from '../services/firebase';
 import { 
   createAvailabilitySlot, 
-  getAvailabilitySlots, 
   getUserAvailabilitySlots, 
+  getActiveAvailabilitySlots,
   updateAvailabilitySlot, 
   deleteAvailabilitySlot
 } from '../services/availability';
@@ -102,7 +102,7 @@ const Calendar: React.FC = () => {
         result = await getEventsByPro(user.proId || user.uid);
       }
       
-      if (result.success) {
+      if (result.success && 'events' in result) {
         setEvents(result.events || []);
         if ((result.events || []).length === 0) {
           console.log('Calendar: No events found in database');
@@ -139,7 +139,7 @@ const Calendar: React.FC = () => {
       } else if (user.role === 'STAFF') {
         // STAFF sees their own availability
         try {
-          const availabilityResult = await getAvailabilitySlots(user.uid);
+          const availabilityResult = await getActiveAvailabilitySlots(user.uid);
           result = {
             success: availabilityResult.success,
             slots: availabilityResult.slots,
@@ -188,7 +188,7 @@ const Calendar: React.FC = () => {
         isActive: availabilityForm.isActive
       };
       
-      const result = await createAvailabilitySlot(slotData);
+      const result = await createAvailabilitySlot(user.uid, slotData);
       if (result.success) {
         await loadAvailabilitySlots();
         resetAvailabilityForm();
@@ -230,10 +230,10 @@ const Calendar: React.FC = () => {
   // };
 
   const handleDeleteAvailabilitySlot = async (slotId: string) => {
-    if (!confirm('Are you sure you want to delete this availability slot?')) return;
+    if (!user || !confirm('Are you sure you want to delete this availability slot?')) return;
     
     try {
-      const result = await deleteAvailabilitySlot(slotId);
+      const result = await deleteAvailabilitySlot(user.uid, slotId);
       if (result.success) {
         await loadAvailabilitySlots();
       } else {
@@ -278,7 +278,7 @@ const Calendar: React.FC = () => {
           // Update existing slot
           if (dayChanges.isActive === false) {
             // Delete slot if marked as inactive
-            await deleteAvailabilitySlot(existingSlot.id!);
+            await deleteAvailabilitySlot(user.uid, existingSlot.id!);
           } else {
             // Update slot with new times
             const updates = {
@@ -287,7 +287,7 @@ const Calendar: React.FC = () => {
               isActive: dayChanges.isActive !== undefined ? dayChanges.isActive : existingSlot.isActive
             };
             
-            const result = await updateAvailabilitySlot(existingSlot.id!, updates);
+            const result = await updateAvailabilitySlot(user.uid, existingSlot.id!, updates);
             if (!result.success) {
               console.error(`Failed to update day ${dayOfWeek}:`, result.error);
             }
@@ -304,7 +304,7 @@ const Calendar: React.FC = () => {
             isActive: true
           };
           
-          const result = await createAvailabilitySlot(slotData);
+          const result = await createAvailabilitySlot(user.uid, slotData);
           if (!result.success) {
             console.error(`Failed to create day ${dayOfWeek}:`, result.error);
           }
@@ -368,7 +368,7 @@ const Calendar: React.FC = () => {
         visibility: eventForm.visibility
       };
       
-      const result = await createEvent(eventData);
+      const result = await createEvent(user.uid, eventData);
       if (result.success) {
         await loadEvents();
         resetForm();
@@ -383,7 +383,7 @@ const Calendar: React.FC = () => {
   };
 
   const handleUpdateEvent = async (eventId: string) => {
-    if (!eventForm.title || !eventForm.startsAt || !eventForm.endsAt) return;
+    if (!user || !eventForm.title || !eventForm.startsAt || !eventForm.endsAt) return;
     
     try {
       const updates = {
@@ -395,7 +395,7 @@ const Calendar: React.FC = () => {
         visibility: eventForm.visibility
       };
       
-      const result = await updateEvent(eventId, updates);
+      const result = await updateEvent(user.uid, eventId, updates);
       if (result.success) {
         await loadEvents();
         resetForm();
@@ -424,7 +424,7 @@ const Calendar: React.FC = () => {
 
   // Handle event deletion with confirmation
   const handleDeleteEvent = async () => {
-    if (!deleteModal.event) return;
+    if (!user || !deleteModal.event) return;
     
     try {
       // Refresh user token first to ensure latest permissions
@@ -447,7 +447,7 @@ const Calendar: React.FC = () => {
         }
       });
       
-      const result = await deleteEvent(eventId);
+      const result = await deleteEvent(user.uid, eventId);
       if (result.success) {
         await loadEvents(); // Reload events after deletion
         setDeleteModal({ isOpen: false, event: null });

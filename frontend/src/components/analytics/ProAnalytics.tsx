@@ -60,9 +60,9 @@ export const ProAnalytics: React.FC<ProAnalyticsProps> = ({ proId }) => {
         }
       }
 
-      if (paymentsResult.success && allUsers.length > 0) {
+      if (paymentsResult.success && 'payments' in paymentsResult && allUsers.length > 0) {
         // Process revenue data
-        const revenue = processRevenueData(paymentsResult.payments || []);
+        const revenue = processRevenueData(paymentsResult.payments as Payment[] || []);
         setRevenueData(revenue);
 
         // Debug logging
@@ -76,7 +76,7 @@ export const ProAnalytics: React.FC<ProAnalyticsProps> = ({ proId }) => {
         
         const performance = processTeamPerformance(
           allUsers,
-          eventsResult.events || []
+          (eventsResult.success && 'events' in eventsResult) ? (eventsResult.events as Array<{ type: string; status?: string }>) || [] : []
         );
         setTeamPerformance(performance);
       }

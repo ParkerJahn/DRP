@@ -4,8 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import type { UserRole } from '../types';
 import { getUsersByRole } from '../services/firebase';
 import { getEventsByPro, getEventsByAttendee } from '../services/calendar';
-import { getPaymentsByPro, getPaymentsByPayer } from '../services/payments';
-import { getUserPackages, getUserPackagePurchases } from '../services/packages';
+import { getUserPayments, getPaymentsByPayer } from '../services/payments';
+import { getUserPackagePurchases } from '../services/packages';
 import type { Event } from '../types';
 import { Timestamp } from 'firebase/firestore';
 import { ProAnalytics } from './analytics/ProAnalytics';
@@ -48,7 +48,7 @@ const WeeklyCalendar: React.FC<{ userId: string; proId: string; userRole: UserRo
           eventsResult = await getEventsByAttendee(userId);
         }
 
-        if (eventsResult.success && eventsResult.events) {
+        if (eventsResult.success && 'events' in eventsResult && eventsResult.events) {
           const today = new Date();
           const weekStart = new Date(today);
           weekStart.setDate(today.getDate() - today.getDay()); // Start of week (Sunday)
@@ -247,7 +247,7 @@ const CalendarWidget: React.FC<{ userId: string; proId: string; userRole: UserRo
           eventsResult = await getEventsByAttendee(userId);
         }
 
-        if (eventsResult.success && eventsResult.events) {
+        if (eventsResult.success && 'events' in eventsResult && eventsResult.events) {
           const today = new Date();
           const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
           const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
@@ -361,7 +361,7 @@ const UpcomingEventsWidget: React.FC<{ userId: string; proId: string; userRole: 
           eventsResult = await getEventsByAttendee(userId);
         }
 
-        if (eventsResult.success && eventsResult.events) {
+        if (eventsResult.success && 'events' in eventsResult && eventsResult.events) {
           const now = new Date();
           const upcoming = eventsResult.events
             .filter((event: Event) => event.startsAt.toDate() > now)
@@ -552,9 +552,9 @@ export const Dashboard: React.FC = () => {
       */
 
       // Load payments for revenue calculation
-      const paymentsResult = await getPaymentsByPro(proId);
+      const paymentsResult = await getUserPayments(proId);
       let totalRevenue = 0;
-      if (paymentsResult.success && paymentsResult.payments) {
+      if (paymentsResult.success && 'payments' in paymentsResult && paymentsResult.payments) {
         totalRevenue = paymentsResult.payments
           .filter(p => p.status === 'succeeded')
           .reduce((sum, p) => sum + p.amount, 0);
@@ -573,9 +573,9 @@ export const Dashboard: React.FC = () => {
       }
 
       // Load packages
-      const packagesResult = await getPackagesByPro(proId);
-      const activePackages = packagesResult.success ? 
-        packagesResult.packages?.filter(p => p.status === 'active').length || 0 : 0;
+      const packagesResult = await getUserPackagePurchases(proId);
+      const activePackages = packagesResult.success && 'purchases' in packagesResult ? 
+        packagesResult.purchases?.filter(p => p.status === 'active').length || 0 : 0;
 
       // Sort activity by timestamp
       activity.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());

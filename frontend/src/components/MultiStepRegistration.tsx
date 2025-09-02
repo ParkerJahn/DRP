@@ -7,6 +7,7 @@ import { db } from '../config/firebase';
 import PasswordStrengthIndicator from './PasswordStrengthIndicator';
 import ForgotPassword from './ForgotPassword';
 import { cleanupOrphanedUsers } from '../services/teamManagement';
+import { INPUT_LIMITS, sanitizeText } from '../utils/validation';
 
 interface RegistrationData {
   email: string;
@@ -366,9 +367,10 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
                   autoComplete="email"
                   required
                   value={registrationData.email}
-                  onChange={(e) => updateRegistrationData('email', e.target.value)}
+                  onChange={(e) => updateRegistrationData('email', sanitizeText(e.target.value, INPUT_LIMITS.EMAIL_MAX))}
                   className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm dark:bg-gray-700"
                   placeholder="Enter your email"
+                  maxLength={INPUT_LIMITS.EMAIL_MAX}
                 />
               </div>
               <div>
@@ -382,9 +384,10 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
                   autoComplete="new-password"
                   required
                   value={registrationData.password}
-                  onChange={(e) => updateRegistrationData('password', e.target.value)}
+                  onChange={(e) => updateRegistrationData('password', sanitizeText(e.target.value, INPUT_LIMITS.PASSWORD_MAX))}
                   className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm dark:bg-gray-700"
                   placeholder="Create a password"
+                  maxLength={INPUT_LIMITS.PASSWORD_MAX}
                 />
                 <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Password must be at least 6 characters long
@@ -402,13 +405,14 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
                   autoComplete="new-password"
                   required
                   value={registrationData.confirmPassword}
-                  onChange={(e) => updateRegistrationData('confirmPassword', e.target.value)}
+                  onChange={(e) => updateRegistrationData('confirmPassword', sanitizeText(e.target.value, INPUT_LIMITS.PASSWORD_MAX))}
                   className={`mt-1 appearance-none relative block w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm dark:bg-gray-700 ${
                     registrationData.confirmPassword && registrationData.password !== registrationData.confirmPassword
                       ? 'border-red-300 dark:border-red-600'
                       : 'border-gray-300 dark:border-gray-600'
                   } placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white`}
                   placeholder="Confirm your password"
+                  maxLength={INPUT_LIMITS.PASSWORD_MAX}
                 />
                 {registrationData.confirmPassword && registrationData.password !== registrationData.confirmPassword && (
                   <div className="mt-1 text-xs text-red-600 dark:text-red-400">
@@ -487,9 +491,10 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
                   autoComplete="given-name"
                   required
                   value={registrationData.firstName}
-                  onChange={(e) => updateRegistrationData('firstName', e.target.value)}
+                  onChange={(e) => updateRegistrationData('firstName', sanitizeText(e.target.value, INPUT_LIMITS.FIRST_NAME_MAX))}
                   className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm dark:bg-gray-700"
                   placeholder="First name"
+                  maxLength={INPUT_LIMITS.FIRST_NAME_MAX}
                 />
               </div>
               <div>
@@ -503,9 +508,10 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
                   autoComplete="family-name"
                   required
                   value={registrationData.lastName}
-                  onChange={(e) => updateRegistrationData('lastName', e.target.value)}
+                  onChange={(e) => updateRegistrationData('lastName', sanitizeText(e.target.value, INPUT_LIMITS.LAST_NAME_MAX))}
                   className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm dark:bg-gray-700"
                   placeholder="Last name"
+                  maxLength={INPUT_LIMITS.LAST_NAME_MAX}
                 />
               </div>
             </div>
@@ -521,9 +527,10 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
                 autoComplete="tel"
                 required
                 value={registrationData.phoneNumber}
-                onChange={(e) => updateRegistrationData('phoneNumber', e.target.value)}
+                onChange={(e) => updateRegistrationData('phoneNumber', sanitizeText(e.target.value, INPUT_LIMITS.PHONE_MAX))}
                 className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm dark:bg-gray-700"
-                placeholder="(555) 123-4567"
+                placeholder="Phone number"
+                maxLength={INPUT_LIMITS.PHONE_MAX}
               />
             </div>
 

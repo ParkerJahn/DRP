@@ -7,8 +7,7 @@ import {
   updateProgram,
   getExerciseCategories,
   createExerciseCategory,
-  addExerciseToCategory,
-  deleteExerciseFromCategory,
+  updateExerciseCategory,
   deleteExerciseCategory,
   type ExerciseCategory,
   deleteProgram
@@ -75,13 +74,13 @@ const Programs: React.FC = () => {
       
       if (user.role === 'PRO' || user.role === 'STAFF') {
         const result = await getProgramsByPro(user.proId || user.uid);
-        if (result.success) {
-          programsData = result.programs || [];
+        if (result.success && 'programs' in result && result.programs) {
+          programsData = result.programs as Program[];
         }
       } else if (user.role === 'ATHLETE') {
         const result = await getProgramsByAthlete(user.uid);
-        if (result.success) {
-          programsData = result.programs || [];
+        if (result.success && 'programs' in result && result.programs) {
+          programsData = result.programs as Program[];
         }
       }
       
@@ -216,7 +215,7 @@ const Programs: React.FC = () => {
     
     try {
       // Create Strength Training category
-      const strengthResult = await createExerciseCategory({
+      const strengthResult = await createExerciseCategory(user.uid, {
         name: 'Strength Training',
         exercises: [],
         createdBy: user.uid,
@@ -233,7 +232,7 @@ const Programs: React.FC = () => {
       }
 
       // Create Cardio category
-      const cardioResult = await createExerciseCategory({
+      const cardioResult = await createExerciseCategory(user.uid, {
         name: 'Cardio',
         exercises: [],
         createdBy: user.uid,
@@ -250,7 +249,7 @@ const Programs: React.FC = () => {
       }
 
       // Create Flexibility category
-      const flexibilityResult = await createExerciseCategory({
+      const flexibilityResult = await createExerciseCategory(user.uid, {
         name: 'Flexibility',
         exercises: [],
         createdBy: user.uid,
@@ -282,6 +281,56 @@ const Programs: React.FC = () => {
     return str.split(' ')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
+  };
+
+  // Helper function to add exercise to category
+  const addExerciseToCategory = async (categoryId: string, exerciseName: string) => {
+    if (!user) return { success: false, error: 'User not authenticated' };
+    
+    try {
+      // Find the current category
+      const category = exerciseCategories.find(cat => cat.id === categoryId);
+      if (!category) {
+        return { success: false, error: 'Category not found' };
+      }
+      
+      // Add exercise if it doesn't already exist
+      if (!category.exercises.includes(exerciseName)) {
+        const updatedExercises = [...category.exercises, exerciseName];
+        const result = await updateExerciseCategory(user.uid, categoryId, {
+          exercises: updatedExercises
+        });
+        return result;
+      }
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Error adding exercise to category:', error);
+      return { success: false, error };
+    }
+  };
+
+  // Helper function to delete exercise from category
+  const deleteExerciseFromCategory = async (categoryId: string, exerciseName: string) => {
+    if (!user) return { success: false, error: 'User not authenticated' };
+    
+    try {
+      // Find the current category
+      const category = exerciseCategories.find(cat => cat.id === categoryId);
+      if (!category) {
+        return { success: false, error: 'Category not found' };
+      }
+      
+      // Remove exercise
+      const updatedExercises = category.exercises.filter(ex => ex !== exerciseName);
+      const result = await updateExerciseCategory(user.uid, categoryId, {
+        exercises: updatedExercises
+      });
+      return result;
+    } catch (error) {
+      console.error('Error deleting exercise from category:', error);
+      return { success: false, error };
+    }
   };
 
   const getCreatorInfo = (createdByUid: string) => {
@@ -364,7 +413,7 @@ const Programs: React.FC = () => {
         lastSharedAt: Timestamp.now()
       };
       
-      const result = await createProgram(newProgram);
+      const result = await createProgram(user.uid, newProgram);
       
       if (result.success) {
         // Reload programs to show the new one
@@ -409,7 +458,7 @@ const Programs: React.FC = () => {
 
   // Enhanced filtering and sorting functions
   const getFilteredAndSortedPrograms = () => {
-    let filtered = programs.filter(program => {
+    const filtered = programs.filter(program => {
       // Status filter
       if (filter !== 'all' && program.status !== filter) return false;
       
@@ -546,7 +595,7 @@ const Programs: React.FC = () => {
     if (newCategoryName.trim()) {
       try {
         const capitalizedCategoryName = capitalizeWords(newCategoryName.trim());
-        const result = await createExerciseCategory({
+        const result = await createExerciseCategory(user?.uid || '', {
           name: capitalizedCategoryName,
           exercises: [],
           createdBy: user?.uid || '',
@@ -595,7 +644,7 @@ const Programs: React.FC = () => {
   };
 
   const handleDeleteExercise = async (blockIndex: number, exerciseIndex: number) => {
-    if (!selectedProgram) return;
+    if (!selectedProgram || !user) return;
     
     const confirmed = window.confirm('Are you sure you want to delete this exercise? This cannot be undone.');
     if (!confirmed) return;
@@ -612,7 +661,7 @@ const Programs: React.FC = () => {
       const cleanProgram = cleanProgramData(updatedProgram);
       
       // Save to Firestore
-      const result = await updateProgram(selectedProgram.id || '', {
+      const result = await updateProgram(user.uid, selectedProgram.id || '', {
         phases: cleanProgram.phases
       });
       
@@ -644,7 +693,7 @@ const Programs: React.FC = () => {
 
   const handleDeleteCategory = async (categoryId: string) => {
     try {
-      const result = await deleteExerciseCategory(categoryId);
+      const result = await deleteExerciseCategory(user?.uid || '', categoryId);
 
       if (result.success) {
         setExerciseCategories(prev => 
@@ -673,12 +722,12 @@ const Programs: React.FC = () => {
   // };
 
   const handleWorkoutCompletion = async (blockIndex: number, exerciseIndex: number, completed: boolean) => {
-    if (!selectedProgram) return;
+    if (!selectedProgram || !user) return;
     try {
       const updatedProgram = { ...selectedProgram };
       const exercise = updatedProgram.phases[currentPhase - 1].blocks[blockIndex].exercises[exerciseIndex];
       exercise.completed = completed;
-      const result = await updateProgram(selectedProgram.id || '', { phases: updatedProgram.phases });
+      const result = await updateProgram(user.uid, selectedProgram.id || '', { phases: updatedProgram.phases });
       if (result.success) {
         setSelectedProgram(updatedProgram);
         setPrograms(prev => prev.map(p => p.id === selectedProgram.id ? updatedProgram : p));
@@ -716,52 +765,7 @@ const Programs: React.FC = () => {
     };
   };
 
-  // Enhanced saveExerciseSelections function
-  const saveExerciseSelections = async (blockIndex: number, exerciseIndex: number) => {
-    if (!selectedProgram) return;
-    
-    try {
-      const rowKey = `${blockIndex}-${exerciseIndex}`;
-      const selections = rowSelections[rowKey];
-      
-      if (!selections) return;
-      
-      // Update local state immediately for UI responsiveness
-      const updatedProgram = { ...selectedProgram };
-      const exercise = updatedProgram.phases[currentPhase - 1].blocks[blockIndex].exercises[exerciseIndex];
-      
-      // Update exercise with selections, filtering out undefined values
-      if (selections.category) exercise.category = selections.category;
-      if (selections.exercise) exercise.name = selections.exercise;
-      if (selections.sets) exercise.sets = parseInt(selections.sets) || 0;
-      if (selections.reps && typeof selections.reps === 'string') exercise.reps = parseInt(selections.reps as unknown as string) || 0;
-      
-      // Clean the program data before saving
-      const cleanProgram = cleanProgramData(updatedProgram);
-      
-      // Update the program in Firestore with cleaned data
-      const result = await updateProgram(selectedProgram.id || '', {
-        phases: cleanProgram.phases
-      });
-      
-      if (result.success) {
-        // Update local state with cleaned data
-        setSelectedProgram(cleanProgram);
-        // Update programs list
-        setPrograms(prev => prev.map(p => 
-          p.id === selectedProgram.id ? cleanProgram : p
-        ));
-      } else {
-        console.error('Error updating exercise selections:', result.error);
-        // Revert local state on error
-        setSelectedProgram(selectedProgram);
-      }
-    } catch (error) {
-      console.error('Error updating exercise selections:', error);
-      // Revert local state on error
-      setSelectedProgram(selectedProgram);
-    }
-  };
+
 
   const handleDeleteProgram = async (programId: string) => {
     if (!user || (user.role !== 'PRO' && user.role !== 'STAFF')) return;
@@ -777,7 +781,7 @@ const Programs: React.FC = () => {
     if (!confirmed) return;
     
     try {
-      const result = await deleteProgram(programId);
+      const result = await deleteProgram(user.uid, programId);
       
       if (result.success) {
         // Remove from local state
@@ -2197,16 +2201,16 @@ const Programs: React.FC = () => {
   };
 
   // Enhanced workout building and phasing functions
-  const getPhaseCompletionRate = (phase: any) => {
+  const getPhaseCompletionRate = (phase: Phase) => {
     if (!phase || !phase.blocks) return 0;
     
     let totalExercises = 0;
     let completedExercises = 0;
     
-    phase.blocks.forEach((block: any) => {
+    phase.blocks.forEach((block) => {
       if (block.exercises) {
         totalExercises += block.exercises.length;
-        block.exercises.forEach((exercise: any) => {
+        block.exercises.forEach((exercise) => {
           if (exercise.completed) completedExercises++;
         });
       }
@@ -2215,8 +2219,8 @@ const Programs: React.FC = () => {
     return totalExercises > 0 ? Math.round((completedExercises / totalExercises) * 100) : 0;
   };
 
-  const handleExerciseSelectionChange = (blockIndex: number, exerciseIndex: number, field: string, value: any) => {
-    if (!selectedProgram) return;
+  const handleExerciseSelectionChange = (blockIndex: number, exerciseIndex: number, field: string, value: string | number) => {
+    if (!selectedProgram || !user) return;
     
     const rowKey = `${blockIndex}-${exerciseIndex}`;
     setRowSelections(prev => ({
@@ -2302,21 +2306,21 @@ const Programs: React.FC = () => {
   };
 
   const handleCompletePhase = async (phaseNumber: number) => {
-    if (!selectedProgram) return;
+    if (!selectedProgram || !user) return;
     
     try {
       const updatedProgram = { ...selectedProgram };
       const phase = updatedProgram.phases[phaseNumber - 1];
       
       // Mark phase as completed (add custom property)
-      (phase as any).status = 'completed';
-      (phase as any).completedAt = new Date();
+      (phase as Phase & { status?: string; completedAt?: Date }).status = 'completed';
+      (phase as Phase & { status?: string; completedAt?: Date }).completedAt = new Date();
       
       // Update program
       setSelectedProgram(updatedProgram);
       
       // Save to Firestore
-      const result = await updateProgram(selectedProgram.id || '', {
+      const result = await updateProgram(user!.uid, selectedProgram.id || '', {
         phases: updatedProgram.phases,
         updatedAt: Timestamp.now()
       });
@@ -2351,7 +2355,7 @@ const Programs: React.FC = () => {
       // Clean the program data before saving
       const cleanProgram = cleanProgramData(selectedProgram);
       
-      const result = await updateProgram(selectedProgram.id || '', {
+      const result = await updateProgram(user!.uid, selectedProgram.id || '', {
         phases: cleanProgram.phases,
         updatedAt: Timestamp.now()
       });
@@ -2378,7 +2382,7 @@ const Programs: React.FC = () => {
   };
 
   const handleShareWithAthlete = async () => {
-    if (!selectedProgram) return;
+    if (!selectedProgram || !user) return;
     
     try {
       // Share with all athletes assigned to the program
@@ -2389,7 +2393,7 @@ const Programs: React.FC = () => {
       }
       
       // Update last shared timestamp
-      await updateProgram(selectedProgram.id || '', {
+      await updateProgram(user!.uid, selectedProgram.id || '', {
         updatedAt: Timestamp.now()
       });
       
@@ -2465,7 +2469,7 @@ const Programs: React.FC = () => {
       phases: selectedProgram.phases.map((phase, index) => ({
         phaseNumber: index + 1,
         name: phase.name,
-        status: (phase as any).status || 'in-progress',
+        status: (phase as Phase & { status?: string }).status || 'in-progress',
         blocks: phase.blocks.map((block, blockIndex) => ({
           blockNumber: blockIndex + 1,
           muscleGroup: block.muscleGroup,

@@ -92,11 +92,67 @@ export const getUserEvents = async (userId: string) => {
   }
 };
 
-// Get events by PRO - needs redesign for subcollections
+// Get events by PRO - redesigned for subcollection architecture
 export const getEventsByPro = async (proId: string) => {
   try {
-    console.warn(`getEventsByPro for ${proId} needs to be redesigned for subcollection architecture`);
-    return { success: false, error: 'Method needs redesign for subcollections' };
+    // First, get all users who belong to this PRO (including the PRO themselves)
+    const usersRef = collection(db, 'users');
+    const teamQuery = query(usersRef, where('proId', '==', proId));
+    const teamSnapshot = await getDocs(teamQuery);
+    
+    // Also explicitly include the PRO user themselves in case proId doesn't match their own uid
+    const proUserRef = doc(db, 'users', proId);
+    const proUserSnap = await getDoc(proUserRef);
+    
+    const userIds = new Set<string>();
+    
+    // Add team members
+    teamSnapshot.forEach((doc) => {
+      userIds.add(doc.id);
+    });
+    
+    // Add PRO user themselves if they exist and have PRO role
+    if (proUserSnap.exists()) {
+      const proUserData = proUserSnap.data();
+      if (proUserData?.role === 'PRO') {
+        userIds.add(proId);
+      }
+    }
+    
+    if (userIds.size === 0) {
+      return { success: true, events: [] };
+    }
+    
+    // Get events from each team member's subcollection
+    const allEvents: Array<Event & { id: string; userId: string }> = [];
+    
+    for (const userId of userIds) {
+      try {
+        const userEventsRef = collection(db, 'users', userId, 'events');
+        const eventsQuery = query(userEventsRef, orderBy('startsAt', 'asc'));
+        const eventsSnapshot = await getDocs(eventsQuery);
+        
+        eventsSnapshot.forEach((doc) => {
+          allEvents.push({ 
+            id: doc.id, 
+            userId: userId,
+            ...doc.data() 
+          } as Event & { id: string; userId: string });
+        });
+      } catch (error) {
+        console.warn(`Error fetching events for user ${userId}:`, error);
+        // Continue with other users even if one fails
+      }
+    }
+    
+    // Sort all events by start date
+    allEvents.sort((a, b) => {
+      const aTime = a.startsAt?.toDate?.()?.getTime() || 0;
+      const bTime = b.startsAt?.toDate?.()?.getTime() || 0;
+      return aTime - bTime;
+    });
+    
+    return { success: true, events: allEvents };
   } catch (error) {
     console.error('Error fetching events by PRO:', error);
     return { success: false, error };

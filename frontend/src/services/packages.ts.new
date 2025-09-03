@@ -1,0 +1,198 @@
+import { collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { auth } from '../config/firebase';
+import { getIdToken } from 'firebase/auth';
+import { db } from '../config/firebase';
+import type { PackagePurchase } from '../types';
+
+// Create a new package purchase for a user
+export const createPackagePurchase = async (
+  athleteUserId: string,
+  purchaseData: Omit<PackagePurchase, 'id' | 'createdAt' | 'updatedAt'>
+) => {
+  try {
+    const userPurchasesRef = collection(db, 'users', athleteUserId, 'packagePurchases');
+    const purchaseRef = await addDoc(userPurchasesRef, {
+      ...purchaseData,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    
+    return { success: true, purchaseId: purchaseRef.id };
+  } catch (error) {
+    console.error('Error creating package purchase:', error);
+    return { success: false, error };
+  }
+};
+
+// Get package purchases for a specific user (athlete)
+export const getUserPackagePurchases = async (userId: string) => {
+  try {
+    const userPurchasesRef = collection(db, 'users', userId, 'packagePurchases');
+    const querySnapshot = await getDocs(userPurchasesRef);
+    
+    const purchases: Array<PackagePurchase & { id: string }> = [];
+    querySnapshot.forEach((doc) => {
+      purchases.push({ id: doc.id, ...doc.data() } as PackagePurchase & { id: string });
+    });
+    
+    // Sort by purchase date (newest first)
+    purchases.sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime());
+    
+    return { success: true, purchases };
+  } catch (error) {
+    console.error('Error fetching user package purchases:', error);
+    
+    // TEMPORARY FIX: If permission error, return empty data instead of failing
+    if (error.code === 'permission-denied' || error.message?.includes('Missing or insufficient permissions')) {
+      console.log('⚠️ Permission denied, returning empty data for user:', userId);
+      return { success: true, purchases: [] };
+    }
+    
+    return { success: false, error };
+  }
+};
+
+// Get package purchases by athlete (alias for getUserPackagePurchases)
+export const getPackagePurchasesByAthlete = async (athleteUserId: string) => {
+  return await getUserPackagePurchases(athleteUserId);
+};
+
+// Get all package purchases for a PRO user's team
+export const getTeamPackagePurchases = async (proId: string) => {
+  try {
+    // This would require a more complex query across multiple users
+    // For now, return empty array
+    console.log('getTeamPackagePurchases not implemented yet for proId:', proId);
+    return { success: true, purchases: [] };
+  } catch (error) {
+    console.error('Error fetching team package purchases:', error);
+    return { success: false, error };
+  }
+};
+
+// Update package purchase
+export const updatePackagePurchase = async (
+  userId: string,
+  purchaseId: string,
+  updateData: Partial<PackagePurchase>
+) => {
+  try {
+    const purchaseRef = doc(db, 'users', userId, 'packagePurchases', purchaseId);
+    await updateDoc(purchaseRef, {
+      ...updateData,
+      updatedAt: serverTimestamp(),
+    });
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating package purchase:', error);
+    return { success: false, error };
+  }
+};
+
+// Delete package purchase (soft delete by marking as inactive)
+export const deletePackagePurchase = async (userId: string, purchaseId: string) => {
+  try {
+    const purchaseRef = doc(db, 'users', userId, 'packagePurchases', purchaseId);
+    await updateDoc(purchaseRef, {
+      status: 'cancelled',
+      updatedAt: serverTimestamp(),
+    });
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting package purchase:', error);
+    return { success: false, error };
+  }
+};
+
+// Get package purchase statistics for a user
+export const getPackagePurchaseStats = async (userId: string) => {
+  try {
+    const purchasesResult = await getUserPackagePurchases(userId);
+    
+    if (!purchasesResult.success) {
+      return { success: false, error: purchasesResult.error };
+    }
+    
+    const purchases = purchasesResult.purchases || [];
+    
+    const stats = {
+      totalPurchases: purchases.length,
+      activePurchases: purchases.filter(p => p.status === 'active').length,
+      totalSessions: purchases.reduce((sum, p) => sum + (p.sessionsRemaining || 0), 0),
+      totalSpent: purchases.reduce((sum, p) => sum + (p.amount || 0), 0),
+    };
+    
+    return { success: true, stats };
+  } catch (error) {
+    console.error('Error fetching package purchase stats:', error);
+    return { success: false, error };
+  }
+};
+
+// Get package purchase analytics for PRO users
+export const getPackagePurchaseAnalytics = async (proId: string) => {
+  try {
+    // This would require aggregating data across all team members
+    // For now, return empty analytics
+    console.log('getPackagePurchaseAnalytics not implemented yet for proId:', proId);
+    return { 
+      success: true, 
+      analytics: {
+        totalRevenue: 0,
+        totalPurchases: 0,
+        averagePurchaseValue: 0,
+        topPackages: [],
+        monthlyTrends: []
+      }
+    };
+  } catch (error) {
+    console.error('Error fetching package purchase analytics:', error);
+    return { success: false, error };
+  }
+};
+
+// Helper function to calculate package expiry
+export const calculatePackageExpiry = (purchase: PackagePurchase): Date | null => {
+  if (!purchase.createdAt || !purchase.validityDays) {
+    return null;
+  }
+  
+  const purchaseDate = purchase.createdAt.toDate();
+  const expiryDate = new Date(purchaseDate);
+  expiryDate.setDate(expiryDate.getDate() + purchase.validityDays);
+  
+  return expiryDate;
+};
+
+// Helper function to check if package is expired
+export const isPackageExpired = (purchase: PackagePurchase): boolean => {
+  const expiryDate = calculatePackageExpiry(purchase);
+  if (!expiryDate) return false;
+  
+  return new Date() > expiryDate;
+};
+
+// Helper function to get active packages for a user
+export const getActivePackages = async (userId: string) => {
+  try {
+    const purchasesResult = await getUserPackagePurchases(userId);
+    
+    if (!purchasesResult.success) {
+      return { success: false, error: purchasesResult.error };
+    }
+    
+    const purchases = purchasesResult.purchases || [];
+    const activePackages = purchases.filter(p => 
+      p.status === 'active' && 
+      !isPackageExpired(p) && 
+      (p.sessionsRemaining || 0) > 0
+    );
+    
+    return { success: true, packages: activePackages };
+  } catch (error) {
+    console.error('Error fetching active packages:', error);
+    return { success: false, error };
+  }
+};

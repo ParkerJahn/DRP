@@ -7,6 +7,7 @@ import {
   deleteDoc, 
   collection, 
   query, 
+  where,
   orderBy, 
   serverTimestamp,
   Timestamp
@@ -28,15 +29,15 @@ export interface ExerciseCategory {
 export const createExerciseCategory = async (userId: string, categoryData: Omit<ExerciseCategory, 'id' | 'createdAt' | 'updatedAt'>) => {
   try {
     const userExercisesRef = collection(db, 'users', userId, 'exercises');
-    const categoryRef = doc(userExercisesRef);
     const newCategory = {
       ...categoryData,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
     
-    await addDoc(userExercisesRef, newCategory);
-    return { success: true, categoryId: categoryRef.id, category: newCategory };
+    // Use the returned docRef to get the actual created ID
+    const docRef = await addDoc(userExercisesRef, newCategory);
+    return { success: true, categoryId: docRef.id, category: newCategory };
   } catch (error) {
     console.error('Error creating exercise category:', error);
     return { success: false, error };
@@ -175,11 +176,67 @@ export const getProgramsByAthlete = async (athleteUserId: string) => {
   }
 };
 
-// Get programs by PRO - needs redesign for subcollections
+// Get programs by PRO - redesigned for subcollection architecture
 export const getProgramsByPro = async (proId: string) => {
   try {
-    console.warn(`getProgramsByPro for ${proId} needs to be redesigned for subcollection architecture`);
-    return { success: false, error: 'Method needs redesign for subcollections' };
+    // First, get all users who belong to this PRO (including the PRO themselves)
+    const usersRef = collection(db, 'users');
+    const teamQuery = query(usersRef, where('proId', '==', proId));
+    const teamSnapshot = await getDocs(teamQuery);
+    
+    // Also explicitly include the PRO user themselves in case proId doesn't match their own uid
+    const proUserRef = doc(db, 'users', proId);
+    const proUserSnap = await getDoc(proUserRef);
+    
+    const userIds = new Set<string>();
+    
+    // Add team members
+    teamSnapshot.forEach((doc) => {
+      userIds.add(doc.id);
+    });
+    
+    // Add PRO user themselves if they exist and have PRO role
+    if (proUserSnap.exists()) {
+      const proUserData = proUserSnap.data();
+      if (proUserData?.role === 'PRO') {
+        userIds.add(proId);
+      }
+    }
+    
+    if (userIds.size === 0) {
+      return { success: true, programs: [] };
+    }
+    
+    // Get programs from each team member's subcollection
+    const allPrograms: Array<Program & { id: string; userId: string }> = [];
+    
+    for (const userId of userIds) {
+      try {
+        const userProgramsRef = collection(db, 'users', userId, 'programs');
+        const programsQuery = query(userProgramsRef, orderBy('updatedAt', 'desc'));
+        const programsSnapshot = await getDocs(programsQuery);
+        
+        programsSnapshot.forEach((doc) => {
+          allPrograms.push({ 
+            id: doc.id, 
+            userId: userId,
+            ...doc.data() 
+          } as Program & { id: string; userId: string });
+        });
+      } catch (error) {
+        console.warn(`Error fetching programs for user ${userId}:`, error);
+        // Continue with other users even if one fails
+      }
+    }
+    
+    // Sort all programs by updated date (newest first)
+    allPrograms.sort((a, b) => {
+      const aTime = a.updatedAt?.toDate?.()?.getTime() || 0;
+      const bTime = b.updatedAt?.toDate?.()?.getTime() || 0;
+      return bTime - aTime;
+    });
+    
+    return { success: true, programs: allPrograms };
   } catch (error) {
     console.error('Error fetching programs by PRO:', error);
     return { success: false, error };

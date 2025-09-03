@@ -103,11 +103,67 @@ export const getUserAvailabilitySlots = async (userId: string) => {
   }
 };
 
-// Get availability slots by PRO - needs redesign for subcollections
+// Get availability slots by PRO - redesigned for subcollection architecture
 export const getAvailabilitySlotsByPro = async (proId: string) => {
   try {
-    console.warn(`getAvailabilitySlotsByPro for ${proId} needs to be redesigned for subcollection architecture`);
-    return { success: false, error: 'Method needs redesign for subcollections' };
+    // First, get all users who belong to this PRO (including the PRO themselves)
+    const usersRef = collection(db, 'users');
+    const teamQuery = query(usersRef, where('proId', '==', proId));
+    const teamSnapshot = await getDocs(teamQuery);
+    
+    // Also explicitly include the PRO user themselves in case proId doesn't match their own uid
+    const proUserRef = doc(db, 'users', proId);
+    const proUserSnap = await getDoc(proUserRef);
+    
+    const userIds = new Set<string>();
+    
+    // Add team members
+    teamSnapshot.forEach((doc) => {
+      userIds.add(doc.id);
+    });
+    
+    // Add PRO user themselves if they exist and have PRO role
+    if (proUserSnap.exists()) {
+      const proUserData = proUserSnap.data();
+      if (proUserData?.role === 'PRO') {
+        userIds.add(proId);
+      }
+    }
+    
+    if (userIds.size === 0) {
+      return { success: true, slots: [] };
+    }
+    
+    // Get availability slots from each team member's subcollection
+    const allSlots: Array<AvailabilitySlot & { id: string; userId: string }> = [];
+    
+    for (const userId of userIds) {
+      try {
+        const userSlotsRef = collection(db, 'users', userId, 'availabilitySlots');
+        const slotsSnapshot = await getDocs(userSlotsRef);
+        
+        slotsSnapshot.forEach((doc) => {
+          allSlots.push({ 
+            id: doc.id, 
+            userId: userId,
+            ...doc.data() 
+          } as AvailabilitySlot & { id: string; userId: string });
+        });
+      } catch (error) {
+        console.warn(`Error fetching availability slots for user ${userId}:`, error);
+        // Continue with other users even if one fails
+      }
+    }
+    
+    // Sort all slots by day of week and start time
+    allSlots.sort((a, b) => {
+      if (a.dayOfWeek !== b.dayOfWeek) {
+        return a.dayOfWeek - b.dayOfWeek;
+      }
+      return a.startTime.localeCompare(b.startTime);
+    });
+    
+    return { success: true, slots: allSlots };
   } catch (error) {
     console.error('Error fetching availability slots by PRO:', error);
     return { success: false, error };

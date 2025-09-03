@@ -5,6 +5,8 @@ import { getEventsByAttendee } from '../../services/calendar';
 import { getProgramsByAthlete } from '../../services/programs';
 import type { Event, PackagePurchase, Program } from '../../types';
 import { RefreshIndicator } from '../RefreshIndicator';
+import { auth } from '../../config/firebase';
+import { getIdToken } from 'firebase/auth';
 
 interface AthleteAnalyticsProps {
   userId: string;
@@ -45,6 +47,17 @@ export const AthleteAnalytics: React.FC<AthleteAnalyticsProps> = ({ userId }) =>
   const loadAthleteAnalytics = useCallback(async () => {
     try {
       setLoading(true);
+      
+      // Force refresh ID token to get latest custom claims
+      try {
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          await getIdToken(currentUser, true);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      } catch (error) {
+        console.log('Warning: Could not refresh ID token:', error);
+      }
       
       // Load packages, events, and programs data
       const packagesResult = await getUserPackagePurchases(userId);

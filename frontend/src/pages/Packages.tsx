@@ -13,6 +13,7 @@ import { createPackageCheckout, redirectToCheckout } from '../services/stripe';
 import type { TrainingPackage, PackagePurchase, PackageStatus, PackageType } from '../types';
 import { getTeamMembers } from '../services/firebase';
 import type { User } from '../types';
+import { useAsyncCallback } from '../hooks/useAsyncCallback';
 
 const Packages: React.FC = () => {
   const { user } = useAuth();
@@ -215,6 +216,9 @@ const Packages: React.FC = () => {
     }
   };
 
+  const { execute: purchasePackage, isPending: purchasing } = useAsyncCallback(handlePurchasePackage);
+  const { execute: deletePackage, isPending: deleting } = useAsyncCallback(handleDeletePackage);
+
   const canManagePackages = user?.role === 'PRO';
   const canViewAnalytics = user?.role === 'PRO';
   const canPurchasePackages = user?.role === 'ATHLETE';
@@ -415,8 +419,9 @@ const Packages: React.FC = () => {
                   <div className="flex gap-2">
                     {canPurchasePackages && pkg.status === 'active' && (
                       <button
-                        onClick={() => handlePurchasePackage(pkg.id!)}
-                        className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                        onClick={() => purchasePackage(pkg.id!)}
+                        disabled={purchasing}
+                        className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Purchase
                       </button>
@@ -431,8 +436,9 @@ const Packages: React.FC = () => {
                           Edit
                         </button>
                         <button
-                          onClick={() => handleDeletePackage(pkg.id!)}
-                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                          onClick={() => deletePackage(pkg.id!)}
+                          disabled={deleting}
+                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Delete
                         </button>

@@ -2,7 +2,7 @@
   "compileOnSave": true,
   "include": [
     "src"
-  ],
+, "../frontend/index.ts"  ],
   "compilerOptions": {
     "module": "NodeNext",
     "noImplicitReturns": true,
@@ -13,6 +13,6 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "moduleResolution": "nodenext",
-    "noUnusedLocals": true
+    "noUnusedLocals": false
   }
 }

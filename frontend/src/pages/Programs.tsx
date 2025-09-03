@@ -603,7 +603,10 @@ const Programs: React.FC = () => {
         });
         if (result.success) {
           if (result.category) {
-            setExerciseCategories(prev => [...prev, result.category as ExerciseCategory]);
+            setExerciseCategories(prev => [
+              ...prev,
+              { id: result.categoryId as string, ...(result.category as ExerciseCategory) }
+            ]);
           }
           setNewCategoryName('');
           setIsAddingCategory(false);
@@ -692,13 +695,25 @@ const Programs: React.FC = () => {
   };
 
   const handleDeleteCategory = async (categoryId: string) => {
+    if (!user?.uid) {
+      console.error('Error deleting category: user not authenticated');
+      alert('You must be signed in to delete a category.');
+      return;
+    }
     try {
-      const result = await deleteExerciseCategory(user?.uid || '', categoryId);
+      const result = await deleteExerciseCategory(user.uid, categoryId);
 
       if (result.success) {
-        setExerciseCategories(prev => 
-          prev.filter(cat => cat.id !== categoryId)
-        );
+        // Remove from local state
+        setExerciseCategories(prev => prev.filter(cat => cat.id !== categoryId));
+        // Reset filter if it was pointing to the deleted category
+        setSelectedCategoryFilter(prev => (prev === categoryId ? 'all' : prev));
+        // Collapse in expanded set if present
+        setExpandedCategories(prev => {
+          const next = new Set(prev);
+          next.delete(categoryId);
+          return next;
+        });
       } else {
         console.error('Error deleting category:', result.error);
         alert('Failed to delete category. Please try again.');

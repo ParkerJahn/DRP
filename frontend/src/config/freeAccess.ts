@@ -1,7 +1,7 @@
 // Free Access Code Configuration
 // This code allows users to activate indefinite free access mode
 
-export const FREE_ACCESS_CODE = 'DRP-X7K9M2P4';
+export const FREE_ACCESS_CODE = import.meta.env.VITE_FREE_ACCESS_CODE || 'your_free_access_code_here';
 
 // Free Access Status Management
 export interface FreeAccessStatus {

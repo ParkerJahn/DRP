@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import type { AuthError } from 'firebase/auth';
 import { auth } from '../config/firebase';
 import { useAuth } from '../hooks/useAuth';
 import type { UserRole } from '../types';
 import PasswordStrengthIndicator from '../components/PasswordStrengthIndicator';
-
 
 interface InviteData {
   id: string;
@@ -17,6 +16,12 @@ interface InviteData {
   proUserName?: string;
   teamName?: string;
 }
+  id: string;
+  proId: string;
+  role: UserRole;
+  email?: string;
+  expiresAt: string;
+}
 
 const JoinInvite: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -25,6 +30,7 @@ const JoinInvite: React.FC = () => {
   const [inviteData, setInviteData] = useState<InviteData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isNewUser, setIsNewUser] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -42,15 +48,6 @@ const JoinInvite: React.FC = () => {
   
   // Add success state to prevent errors after successful account creation
   const [accountCreated, setAccountCreated] = useState(false);
-
-  // Early exit if user has already redeemed invite or account is created
-  useEffect(() => {
-    if (accountCreated && user?.proId) {
-      console.log('✅ User already redeemed invite, redirecting to dashboard...');
-      navigate('/app/dashboard');
-      return;
-    }
-  }, [accountCreated, user?.proId, navigate]);
 
   useEffect(() => {
     console.log('🔍 JoinInvite useEffect - component mounted');
@@ -96,16 +93,13 @@ const JoinInvite: React.FC = () => {
         setInviteData(result.invite);
         setLoading(false);
       } else {
-        // Check if this is a claimed invite and redirect immediately
+        // Check if this is a claimed invite and show special message
         if (result.error === 'Invite has already been claimed') {
-          console.log('⚠️ Invite already claimed, redirecting to dashboard...');
-          // Redirect immediately instead of showing error
-          navigate('/app/dashboard');
-          return;
+          setError('This invite has already been used. Please open a new browser tab and sign in to your account to access the team.');
         } else {
           setError(result.error || 'Invalid invite');
-          setLoading(false);
         }
+        setLoading(false);
       }
     } catch (error) {
       console.error('Error validating invite:', error);
@@ -123,13 +117,12 @@ const JoinInvite: React.FC = () => {
 
   // Auto-redeem invite if user is already authenticated
   useEffect(() => {
-    // Prevent multiple triggers - more comprehensive check
-    if (hasAttemptedRedemption || submitting || redeemingInvite || accountCreated) {
+    // Prevent multiple triggers
+    if (hasAttemptedRedemption || submitting || redeemingInvite) {
       console.log('⚠️ Auto-redemption skipped:', { 
         hasAttemptedRedemption, 
         submitting, 
-        redeemingInvite,
-        accountCreated
+        redeemingInvite 
       });
       return;
     }
@@ -144,7 +137,7 @@ const JoinInvite: React.FC = () => {
       currentUrl: window.location.href
     });
     
-    if (user && inviteData && !loading && !redeemingInvite && !accountCreated) {
+    if (user && inviteData && !loading && !redeemingInvite) {
       console.log('🚀 Auto-redeeming invite for authenticated user:', {
         uid: user.uid,
         email: user.email,
@@ -173,15 +166,7 @@ const JoinInvite: React.FC = () => {
         navigate('/app/dashboard');
       }
     }
-  }, [user, inviteData, loading, redeemingInvite, hasAttemptedRedemption, submitting, accountCreated, navigate]);
-
-  // Cleanup effect to handle component unmounting
-  useEffect(() => {
-    return () => {
-      // Cleanup when component unmounts
-      console.log('🧹 JoinInvite component unmounting');
-    };
-  }, []);
+  }, [user, inviteData, loading, redeemingInvite, hasAttemptedRedemption, submitting, navigate]);
 
   const handleFormChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -210,12 +195,6 @@ const JoinInvite: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Enhanced guards against duplicate submissions
-    if (submitting || redeemingInvite || accountCreated) {
-      console.log('⚠️ Form submission blocked:', { submitting, redeemingInvite, accountCreated });
-      return;
-    }
-    
     if (!validateForm() || !inviteData) return;
 
     try {
@@ -228,42 +207,96 @@ const JoinInvite: React.FC = () => {
         return;
       }
 
-      console.log('🚀 Creating new user account...');
-      const userCredential = await createUserWithEmailAndPassword(
-        auth, 
-        formData.email, 
-        formData.password
-      );
+      if (isNewUser) {
+        // Create new account
+        const userCredential = await createUserWithEmailAndPassword(
+          auth, 
+          formData.email, 
+          formData.password
+        );
 
-      console.log('✅ New user account created successfully');
-      
-      // Now redeem the invite for the new user
-      await redeemInviteForUser(userCredential.user.uid, formData.email, `${formData.firstName} ${formData.lastName}`);
-      
-      // Refresh user data to get updated custom claims
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for claims to propagate
-      if (auth.currentUser) {
-        await auth.currentUser.getIdToken(true); // Force refresh token with new claims
-      }
-      
-      // Mark account as created to prevent errors
-      setAccountCreated(true);
-      
-      // Show success message
-      alert(`🎉 Account created successfully! You've been invited to join the team. Please close this tab and sign in to your new account.`);
-      
-      // Close the current tab/window and redirect to sign-in page
-      try {
-        // Try to close the current tab/window
-        window.close();
+        const newUser = userCredential.user;
+
+        // Call Cloud Function to redeem invite and create user profile
+        const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/redeemInvite', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${await newUser.getIdToken()}`
+          },
+          body: JSON.stringify({
+            uid: newUser.uid,
+            token: token,
+            userData: {
+              email: formData.email,
+              displayName: `${formData.firstName} ${formData.lastName}`,
+              firstName: formData.firstName,
+              lastName: formData.lastName,
+              phoneNumber: formData.phoneNumber
+            }
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to redeem invite');
+        }
+
+        console.log('✅ New user account created successfully');
         
-        // If window.close() doesn't work (due to browser security), redirect to sign-in
-        setTimeout(() => {
-          window.location.href = '/auth';
-        }, 1000);
-      } catch {
-        console.log('Could not close window, redirecting to sign-in page...');
-        window.location.href = '/auth';
+        // Mark account as created to prevent errors
+        setAccountCreated(true);
+        
+        // Now redeem the invite for the new user
+        await redeemInviteForUser(newUser.uid, formData.email, `${formData.firstName} ${formData.lastName}`);
+      } else {
+        // Sign in existing account
+        try {
+          const userCredential = await signInWithEmailAndPassword(auth, formData.email, formData.password);
+          const existingUser = userCredential.user;
+
+          // Mark account as created to prevent errors
+          setAccountCreated(true);
+
+          // Automatically redeem the invite for the existing user
+          await redeemInviteForUser(existingUser.uid, formData.email, `${formData.firstName} ${formData.lastName}`);
+        } catch (signInError: unknown) {
+          console.error('Sign-in error:', signInError);
+          
+          const errorCode = (signInError as { code?: string })?.code;
+          if (errorCode === 'auth/user-not-found') {
+            setError('No account found with this email. Please create a new account instead.');
+            setIsNewUser(true);
+            return; // Don't re-throw, just return
+          } else if (errorCode === 'auth/wrong-password') {
+            setError('Incorrect password. Please try again.');
+            return; // Don't re-throw, just return
+          } else if (errorCode === 'auth/invalid-credential') {
+            // This is a generic error, try to determine if user exists
+            try {
+              // Check if user exists by trying to create account (this will fail if user exists)
+              await createUserWithEmailAndPassword(auth, formData.email, 'tempPassword123!');
+              // If we get here, user doesn't exist (temp account created)
+              // Delete the temp account and switch to sign-up mode
+              await auth.currentUser?.delete();
+              setError('No account found with this email. Please create a new account instead.');
+              setIsNewUser(true);
+            } catch (createError: unknown) {
+              const createErrorCode = (createError as { code?: string })?.code;
+              if (createErrorCode === 'auth/email-already-in-use') {
+                // User exists, so it's a password issue
+                setError('Incorrect password. Please try again.');
+              } else {
+                // Some other error, show generic message
+                setError('Invalid email or password. Please check your credentials.');
+              }
+            }
+            return; // Don't re-throw, just return
+          } else {
+            setError(`Sign-in failed: ${(signInError as { message?: string })?.message || 'Unknown error'}`);
+            return; // Don't re-throw, just return
+          }
+        }
       }
     } catch (error: unknown) {
       console.error('Error joining team:', error);
@@ -271,8 +304,10 @@ const JoinInvite: React.FC = () => {
       const errorCode = (error as { code?: string })?.code;
       if (errorCode === 'auth/email-already-in-use') {
         setError('An account with this email already exists. Please sign in instead.');
+        setIsNewUser(false);
       } else if (errorCode === 'auth/user-not-found') {
         setError('No account found with this email. Please create a new account.');
+        setIsNewUser(true);
       } else if (errorCode === 'auth/wrong-password') {
         setError('Incorrect password. Please try again.');
       } else {
@@ -313,28 +348,6 @@ const JoinInvite: React.FC = () => {
       console.log('🔄 Redeeming invite for Google user...');
       await redeemInviteForUser(result.user.uid, result.user.email || '', result.user.displayName || '');
       
-      // Refresh user data to get updated custom claims
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for claims to propagate
-      if (auth.currentUser) {
-        await auth.currentUser.getIdToken(true); // Force refresh token with new claims
-      }
-      
-      // Show success message and close browser
-      alert(`🎉 Successfully joined the team! Please close this tab and sign in to your account.`);
-      
-      // Close the current tab/window and redirect to sign-in page
-      try {
-        // Try to close the current tab/window
-        window.close();
-        
-        // If window.close() doesn't work (due to browser security), redirect to sign-in
-        setTimeout(() => {
-          window.location.href = '/auth';
-        }, 1000);
-      } catch {
-        console.log('Could not close window, redirecting to sign-in page...');
-        window.location.href = '/auth';
-      }
     } catch (error) {
       console.error('❌ Google sign-in error:', error);
       
@@ -359,9 +372,8 @@ const JoinInvite: React.FC = () => {
 
   // Handle invite redemption for any authenticated user
   const redeemInviteForUser = async (uid: string, email: string, displayName: string) => {
-    // Enhanced guards against duplicate calls
-    if (redeemingInvite || accountCreated) {
-      console.log('⚠️ Already redeeming invite or account created, skipping...', { redeemingInvite, accountCreated });
+    if (redeemingInvite) {
+      console.log('⚠️ Already redeeming invite, skipping...');
       return;
     }
     
@@ -431,18 +443,6 @@ const JoinInvite: React.FC = () => {
       if (!response.ok) {
         const errorData = await response.json();
         console.error('❌ Cloud Function error:', errorData);
-        
-        // Handle specific error cases
-        if (errorData.error === 'Invite has already been claimed') {
-          console.log('⚠️ Invite already claimed, marking account as created and redirecting...');
-          setAccountCreated(true);
-          setError('This invite has already been used. Redirecting to dashboard...');
-          
-          // Redirect immediately
-          navigate('/app/dashboard');
-          return;
-        }
-        
         throw new Error(errorData.error || 'Failed to redeem invite');
       }
 
@@ -491,37 +491,15 @@ const JoinInvite: React.FC = () => {
       // Mark account as created to prevent errors
       setAccountCreated(true);
       
-      // Show success message and close browser
-      alert(`🎉 You have been successfully connected to the team! Please close this tab and sign in to your account.`);
+      // Show success message and redirect to dashboard
+      alert(`🎉 You have been successfully connected to the team! Welcome to DRP Workshop!`);
       
-      // Close the current tab/window and redirect to sign-in page
-      try {
-        // Try to close the current tab/window
-        window.close();
-        
-        // If window.close() doesn't work (due to browser security), redirect to sign-in
-        setTimeout(() => {
-          window.location.href = '/auth';
-        }, 1000);
-      } catch {
-        console.log('Could not close window, redirecting to sign-in page...');
-        window.location.href = '/auth';
-      }
+      // Navigate to dashboard instead of login page
+      navigate('/app/dashboard');
       
     } catch (error) {
       console.error('❌ Error redeeming invite:', error);
-      
-      // Handle specific error cases
-      if (error instanceof Error && error.message.includes('already been claimed')) {
-        console.log('⚠️ Invite already claimed, marking account as created and redirecting...');
-        setAccountCreated(true);
-        setError('This invite has already been used. Redirecting to dashboard...');
-        
-        // Redirect immediately
-        navigate('/app/dashboard');
-      } else {
-        setError((error as Error).message || 'Failed to redeem invite');
-      }
+      setError((error as Error).message || 'Failed to redeem invite');
     } finally {
       setRedeemingInvite(false);
     }
@@ -565,6 +543,10 @@ const JoinInvite: React.FC = () => {
             {inviteData.role === 'STAFF' ? '👥' : '💪'}
           </div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+            {inviteData.proUserName && inviteData.teamName 
+              ? `You're invited by ${inviteData.proUserName} to join ${inviteData.teamName}`
+              : 'Join the Team!'
+            }
             {inviteData.proUserName && inviteData.teamName 
               ? `You're invited by ${inviteData.proUserName} to join ${inviteData.teamName}`
               : 'Join the Team!'
@@ -653,21 +635,23 @@ const JoinInvite: React.FC = () => {
           </div>
         )}
 
-        {/* Password Requirements */}
-        <div className="mb-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
-            Password Requirements
-          </h3>
-          <ul className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
-            <li>• At least 6 characters long</li>
-            <li>• Include uppercase and lowercase letters</li>
-            <li>• Include numbers and special characters</li>
-            <li>• Avoid common weak passwords</li>
-          </ul>
-        </div>
+        {/* Password Requirements for New Users */}
+        {isNewUser && (
+          <div className="mb-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+            <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
+              Password Requirements
+            </h3>
+            <ul className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+              <li>• At least 6 characters long</li>
+              <li>• Include uppercase and lowercase letters</li>
+              <li>• Include numbers and special characters</li>
+              <li>• Avoid common weak passwords</li>
+            </ul>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Show name fields */}
+          {/* Show name fields for both sign-in and sign-up */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -697,20 +681,22 @@ const JoinInvite: React.FC = () => {
             </div>
           </div>
 
-          {/* Phone number */}
-          <div>
-            <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Phone Number *
-            </label>
-            <input
-              id="phoneNumber"
-              type="tel"
-              value={formData.phoneNumber}
-              onChange={(e) => handleFormChange('phoneNumber', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white"
-              required
-            />
-          </div>
+          {/* Show phone number only for new accounts */}
+          {isNewUser && (
+            <div>
+              <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Phone Number *
+              </label>
+              <input
+                id="phoneNumber"
+                type="tel"
+                value={formData.phoneNumber}
+                onChange={(e) => handleFormChange('phoneNumber', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white"
+                required
+              />
+            </div>
+          )}
 
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -744,39 +730,45 @@ const JoinInvite: React.FC = () => {
             <PasswordStrengthIndicator password={formData.password} showStrength={true} />
           </div>
 
-          {/* Confirm password */}
-          <div>
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Confirm Password *
-            </label>
-            <input
-              id="confirmPassword"
-              type="password"
-              value={formData.confirmPassword}
-              onChange={(e) => handleFormChange('confirmPassword', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white ${
-                formData.confirmPassword && formData.password !== formData.confirmPassword
-                  ? 'border-red-300 dark:border-red-600'
-                  : 'border-gray-300 dark:border-gray-600'
-              }`}
-              required
-            />
-            {formData.confirmPassword && formData.password !== formData.confirmPassword && (
-              <div className="mt-1 text-xs text-red-600 dark:text-red-400">
-                Passwords do not match
-              </div>
-            )}
-            {formData.confirmPassword && formData.password === formData.confirmPassword && (
-              <div className="mt-1 text-xs text-green-600 dark:text-green-400">
-                ✓ Passwords match
-              </div>
-            )}
-          </div>
+          {/* Show confirm password only for new accounts */}
+          {isNewUser && (
+            <div>
+              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Confirm Password *
+              </label>
+              <input
+                id="confirmPassword"
+                type="password"
+                value={formData.confirmPassword}
+                onChange={(e) => handleFormChange('confirmPassword', e.target.value)}
+                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white ${
+                  formData.confirmPassword && formData.password !== formData.confirmPassword
+                    ? 'border-red-300 dark:border-red-600'
+                    : 'border-gray-300 dark:border-gray-600'
+                }`}
+                required
+              />
+              {formData.confirmPassword && formData.password !== formData.confirmPassword && (
+                <div className="mt-1 text-xs text-red-600 dark:text-red-400">
+                  Passwords do not match
+                </div>
+              )}
+              {formData.confirmPassword && formData.password === formData.confirmPassword && (
+                <div className="mt-1 text-xs text-green-600 dark:text-green-400">
+                  ✓ Passwords match
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Mode indicator */}
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
             <p className="text-sm text-blue-700 dark:text-blue-300 text-center">
-              🆕 <strong>Creating new account</strong> - You'll be automatically added to the team
+              {isNewUser ? (
+                <>🆕 <strong>Creating new account</strong> - You'll be automatically added to the team</>
+              ) : (
+                <>🔑 <strong>Signing in to existing account</strong> - You'll be added to the team</>
+              )}
             </p>
           </div>
 
@@ -785,11 +777,21 @@ const JoinInvite: React.FC = () => {
             disabled={submitting}
             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {submitting ? 'Creating Account...' : `Create Account & Join as ${inviteData.role}`}
+            {submitting ? 'Joining Team...' : (isNewUser ? `Create Account & Join as ${inviteData.role}` : `Sign In & Join as ${inviteData.role}`)}
           </button>
         </form>
 
         <div className="mt-6 text-center">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            {isNewUser ? 'Already have an account?' : "Don't have an account yet?"}{' '}
+            <button
+              onClick={() => setIsNewUser(!isNewUser)}
+              className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium"
+            >
+              {isNewUser ? 'Sign in instead' : 'Create new account'}
+            </button>
+          </p>
+          
           {/* Google Sign-in Button */}
           <button
             onClick={handleGoogleSignIn}
@@ -824,4 +826,4 @@ const JoinInvite: React.FC = () => {
   );
 };
 
-export default JoinInvite;
+export default JoinInvite; 

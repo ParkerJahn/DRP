@@ -9,6 +9,18 @@ import ForgotPassword from './ForgotPassword';
 import { cleanupOrphanedUsers } from '../services/teamManagement';
 import { INPUT_LIMITS, sanitizeText } from '../utils/validation';
 
+/**
+ * MultiStepRegistration Component
+ * 
+ * Refactored for SweatPro-only public registration:
+ * - Public registration (from /register route): Only allows PRO (coach/trainer) registration
+ * - Invite-based registration: Maintains full role selection for backward compatibility
+ * - Uses isInviteBasedRegistration prop to distinguish between entry points
+ * - Athletes and Team Members must use invitation links from their coaches
+ * 
+ * @param isInviteBasedRegistration - Optional flag to enable full role selection (defaults to false)
+ */
+
 interface RegistrationData {
   email: string;
   password: string;
@@ -22,9 +34,16 @@ interface RegistrationData {
 interface MultiStepRegistrationProps {
   onRegistrationComplete: (userData: { uid: string; email: string | null; displayName: string; role: string }) => void;
   onSwitchToSignIn: () => void;
+  // Add optional prop to distinguish entry point (for future extensibility)
+  isInviteBasedRegistration?: boolean;
 }
 
-function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: MultiStepRegistrationProps) {
+function MultiStepRegistration({ 
+  onRegistrationComplete, 
+  onSwitchToSignIn, 
+  isInviteBasedRegistration = false 
+}: MultiStepRegistrationProps) {
+  
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +57,8 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
     firstName: '',
     lastName: '',
     phoneNumber: '',
-    role: 'ATHLETE'
+    // Default to PRO for public registration, maintain old behavior for invite-based
+    role: isInviteBasedRegistration ? 'ATHLETE' : 'PRO'
   });
 
   // Step 1: Authentication - Only validate, don't create account yet
@@ -265,11 +285,19 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
         <div className="max-w-md w-full space-y-8">
           <div>
             <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
-              Create Your Account
+              {isInviteBasedRegistration ? "Join Your Team" : "SweatPro Registration"}
             </h2>
             <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
-              Step 1 of 2: Set up your authentication
+              {isInviteBasedRegistration 
+                ? "Step 1 of 2: Set up your authentication" 
+                : "Step 1 of 2: For coaches and trainers only"
+              }
             </p>
+            {!isInviteBasedRegistration && (
+              <p className="mt-1 text-center text-xs text-gray-500 dark:text-gray-500">
+                Athletes and team members will receive an invite from their coach
+              </p>
+            )}
           </div>
 
           {error && (
@@ -457,10 +485,13 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
       <div className="max-w-md w-full space-y-8">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
-            Complete Your Profile
+            {isInviteBasedRegistration ? "Complete Your Profile" : "SweatPro Profile Setup"}
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
-            Step 2 of 2: Tell us about yourself
+            {isInviteBasedRegistration 
+              ? "Step 2 of 2: Tell us about yourself" 
+              : "Step 2 of 2: Set up your coaching profile"
+            }
           </p>
         </div>
 
@@ -479,6 +510,21 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
 
         <form className="mt-8 space-y-6" onSubmit={handleProfileSubmit}>
           <div className="space-y-4">
+            {/* SweatPro Registration Header for public registration */}
+            {!isInviteBasedRegistration && (
+              <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-4 mb-6">
+                <h3 className="text-lg font-semibold text-indigo-900 dark:text-indigo-100 mb-2">
+                  🏋️ SweatPro Registration
+                </h3>
+                <p className="text-sm text-indigo-700 dark:text-indigo-300 mb-2">
+                  This registration is for personal trainers, coaches, and fitness professionals who want to manage their clients and grow their business.
+                </p>
+                <p className="text-xs text-indigo-600 dark:text-indigo-400">
+                  <strong>Athletes and Team Members:</strong> You'll receive an invitation link from your coach. No need to register here!
+                </p>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -534,23 +580,44 @@ function MultiStepRegistration({ onRegistrationComplete, onSwitchToSignIn }: Mul
               />
             </div>
 
-            <div>
-              <label htmlFor="role" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                I am a... *
-              </label>
-              <select
-                id="role"
-                name="role"
-                required
-                value={registrationData.role}
-                onChange={(e) => updateRegistrationData('role', e.target.value as 'PRO' | 'ATHLETE' | 'STAFF')}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm text-gray-900 dark:text-white"
-              >
-                <option value="ATHLETE">Athlete (I want to train)</option>
-                <option value="PRO">PRO Coach (I want to train others)</option>
-                <option value="STAFF">Staff Member (I assist coaches)</option>
-              </select>
-            </div>
+            {/* Role selection - only show for invite-based registration, hide for public */}
+            {isInviteBasedRegistration ? (
+              <div>
+                <label htmlFor="role" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  I am a... *
+                </label>
+                <select
+                  id="role"
+                  name="role"
+                  required
+                  value={registrationData.role}
+                  onChange={(e) => updateRegistrationData('role', e.target.value as 'PRO' | 'ATHLETE' | 'STAFF')}
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm text-gray-900 dark:text-white"
+                >
+                  <option value="ATHLETE">Athlete (I want to train)</option>
+                  <option value="PRO">PRO Coach (I want to train others)</option>
+                  <option value="STAFF">Staff Member (I assist coaches)</option>
+                </select>
+              </div>
+            ) : (
+              /* Hidden field for public registration - always PRO */
+              <input type="hidden" name="role" value="PRO" />
+            )}
+
+            {/* Display selected role for public registration */}
+            {!isInviteBasedRegistration && (
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center">
+                  <div className="w-3 h-3 bg-indigo-500 rounded-full mr-3"></div>
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">
+                    Registering as: SweatPro (Coach/Trainer)
+                  </span>
+                </div>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 ml-6">
+                  You'll be able to create training programs, manage clients, and grow your fitness business.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="flex space-x-3">

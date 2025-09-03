@@ -8,6 +8,7 @@ import {
   deleteDoc,
   collection, 
   query, 
+  where,
   orderBy, 
   serverTimestamp,
   limit,
@@ -102,14 +103,67 @@ export const getUserChats = async (userId: string) => {
   }
 };
 
-// Get chats by PRO - now searches across all users for chats with specific proId
+// Get chats by PRO - redesigned for subcollection architecture
 export const getChatsByPro = async (proId: string) => {
   try {
-    // For now, we'll need to query the main users collection and then get their chats
-    // This is a limitation of the subcollection approach - we'll need to implement 
-    // a different strategy for cross-user queries
-    console.warn(`getChatsByPro for ${proId} needs to be redesigned for subcollection architecture`);
-    return { success: false, error: 'Method needs redesign for subcollections' };
+    // First, get all users who belong to this PRO (including the PRO themselves)
+    const usersRef = collection(db, 'users');
+    const teamQuery = query(usersRef, where('proId', '==', proId));
+    const teamSnapshot = await getDocs(teamQuery);
+    
+    // Also explicitly include the PRO user themselves in case proId doesn't match their own uid
+    const proUserRef = doc(db, 'users', proId);
+    const proUserSnap = await getDoc(proUserRef);
+    
+    const userIds = new Set<string>();
+    
+    // Add team members
+    teamSnapshot.forEach((doc) => {
+      userIds.add(doc.id);
+    });
+    
+    // Add PRO user themselves if they exist and have PRO role
+    if (proUserSnap.exists()) {
+      const proUserData = proUserSnap.data();
+      if (proUserData?.role === 'PRO') {
+        userIds.add(proId);
+      }
+    }
+    
+    if (userIds.size === 0) {
+      return { success: true, chats: [] };
+    }
+    
+    // Get chats from each team member's subcollection
+    const allChats: Array<Chat & { id: string; userId: string }> = [];
+    
+    for (const userId of userIds) {
+      try {
+        const userChatsRef = collection(db, 'users', userId, 'chats');
+        const chatsQuery = query(userChatsRef, orderBy('lastMessageAt', 'desc'));
+        const chatsSnapshot = await getDocs(chatsQuery);
+        
+        chatsSnapshot.forEach((doc) => {
+          allChats.push({ 
+            id: doc.id, 
+            userId: userId,
+            ...doc.data() 
+          } as Chat & { id: string; userId: string });
+        });
+      } catch (error) {
+        console.warn(`Error fetching chats for user ${userId}:`, error);
+        // Continue with other users even if one fails
+      }
+    }
+    
+    // Sort all chats by last message time (newest first)
+    allChats.sort((a, b) => {
+      const aTime = a.lastMessage?.at?.toDate?.()?.getTime() || 0;
+      const bTime = b.lastMessage?.at?.toDate?.()?.getTime() || 0;
+      return bTime - aTime;
+    });
+    
+    return { success: true, chats: allChats };
   } catch (error) {
     console.error('Error fetching chats by PRO:', error);
     return { success: false, error };

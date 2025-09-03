@@ -82,7 +82,7 @@ export class InputValidator {
       .trim();
     
     // Check for security patterns
-    if (this.containsSecurityThreats(sanitized)) {
+    if (InputValidator.containsSecurityThreats(sanitized)) {
       throw new Error('Input contains potentially dangerous content');
     }
     
@@ -150,7 +150,7 @@ export class InputValidator {
     }
 
     // Check for security threats
-    if (this.containsSecurityThreats(password)) {
+    if (InputValidator.containsSecurityThreats(password)) {
       return { isValid: false, sanitized: '', error: 'Password contains invalid characters' };
     }
 
@@ -173,7 +173,7 @@ export class InputValidator {
       : INPUT_LIMITS.DISPLAY_NAME_MAX;
 
     try {
-      const sanitized = this.sanitizeText(name, maxLength);
+      const sanitized = InputValidator.sanitizeText(name, maxLength);
       
       if (sanitized.length < 2) {
         return { isValid: false, sanitized: '', error: `${fieldName} must be at least 2 characters long` };
@@ -217,7 +217,7 @@ export class InputValidator {
     }
 
     try {
-      const sanitized = this.sanitizeText(content, maxLength);
+      const sanitized = InputValidator.sanitizeText(content, maxLength);
       
       if (sanitized.length < 1) {
         return { isValid: false, sanitized: '', error: 'Content cannot be empty' };
@@ -269,7 +269,7 @@ export class InputValidator {
     const sanitized = url.trim();
     
     // Check for security threats
-    if (this.containsSecurityThreats(sanitized)) {
+    if (InputValidator.containsSecurityThreats(sanitized)) {
       return { isValid: false, sanitized: '', error: 'URL contains invalid content' };
     }
     
@@ -312,7 +312,7 @@ export class InputValidator {
 
   // Prevent common injection patterns (enhanced)
   static containsInjectionPatterns(input: string): boolean {
-    return this.containsSecurityThreats(input);
+    return InputValidator.containsSecurityThreats(input);
   }
 
   // Validate file uploads
@@ -330,7 +330,7 @@ export class InputValidator {
     }
 
     // Check filename for security
-    if (this.containsSecurityThreats(file.name)) {
+    if (InputValidator.containsSecurityThreats(file.name)) {
       return { isValid: false, error: 'Filename contains invalid characters' };
     }
 

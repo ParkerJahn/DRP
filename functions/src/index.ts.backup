@@ -770,20 +770,6 @@ export const validateInvite = onRequest({
     );
 
     if (validation.valid) {
-      // Fetch PRO user and team information
-      const proUserDoc = await db.collection("users")
-        .doc(inviteData.proId).get();
-      const teamDoc = await db.collection("teams")
-        .doc(inviteData.proId).get();
-
-      const proUserData = proUserDoc.exists ? proUserDoc.data() : null;
-      const teamData = teamDoc.exists ? teamDoc.data() : null;
-
-      const proUserName = proUserData?.displayName ||
-        proUserData?.firstName + " " + proUserData?.lastName ||
-        "Unknown User";
-      const teamName = teamData?.name || "My Team";
-
       response.status(200).json({
         valid: true,
         invite: {
@@ -792,8 +778,6 @@ export const validateInvite = onRequest({
           role: inviteData.role,
           email: inviteData.email,
           expiresAt: inviteData.expiresAt,
-          proUserName,
-          teamName,
         },
       });
     } else {

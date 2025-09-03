@@ -34,3 +34,6 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp serviceAccountKey.json
+
+# Documentation files (prevent accidental commit of sensitive docs)
+*.md

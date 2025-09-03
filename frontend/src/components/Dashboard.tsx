@@ -11,6 +11,10 @@ import { Timestamp } from 'firebase/firestore';
 import { ProAnalytics } from './analytics/ProAnalytics';
 import { StaffAnalytics } from './analytics/StaffAnalytics';
 import { AthleteAnalytics } from './analytics/AthleteAnalytics';
+import { useAsyncCallback } from '../hooks/useAsyncCallback';
+import { auth } from '../config/firebase';
+import { getIdToken } from 'firebase/auth';
+import { assignManualRole, checkUserState } from '../utils/manualRoleAssignment';
 
 interface DashboardStats {
   staffCount: number;
@@ -40,6 +44,18 @@ const WeeklyCalendar: React.FC<{ userId: string; proId: string; userRole: UserRo
     const loadWeekEvents = async () => {
       try {
         setLoading(true);
+    
+    // Force refresh ID token to get latest custom claims
+    try {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        await getIdToken(currentUser, true);
+        // Wait for claims to propagate
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    } catch (error) {
+      console.log('Warning: Could not refresh ID token:', error);
+    }
         let eventsResult;
         
         if (userRole === 'PRO' || userRole === 'STAFF') {
@@ -239,6 +255,18 @@ const CalendarWidget: React.FC<{ userId: string; proId: string; userRole: UserRo
     const loadTodayEvents = async () => {
       try {
         setLoading(true);
+    
+    // Force refresh ID token to get latest custom claims
+    try {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        await getIdToken(currentUser, true);
+        // Wait for claims to propagate
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    } catch (error) {
+      console.log('Warning: Could not refresh ID token:', error);
+    }
         let eventsResult;
         
         if (userRole === 'PRO' || userRole === 'STAFF') {
@@ -353,6 +381,18 @@ const UpcomingEventsWidget: React.FC<{ userId: string; proId: string; userRole: 
     const loadUpcomingEvents = async () => {
       try {
         setLoading(true);
+    
+    // Force refresh ID token to get latest custom claims
+    try {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        await getIdToken(currentUser, true);
+        // Wait for claims to propagate
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    } catch (error) {
+      console.log('Warning: Could not refresh ID token:', error);
+    }
         let eventsResult;
         
         if (userRole === 'PRO' || userRole === 'STAFF') {
@@ -496,6 +536,18 @@ export const Dashboard: React.FC = () => {
     if (!user) return;
     
     setLoading(true);
+    
+    // Force refresh ID token to get latest custom claims
+    try {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        await getIdToken(currentUser, true);
+        // Wait for claims to propagate
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    } catch (error) {
+      console.log('Warning: Could not refresh ID token:', error);
+    }
     try {
       if (role === 'PRO') {
         await loadProDashboard();
@@ -739,6 +791,10 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  const { execute: runQuickAction, isPending: quickActionPending } = useAsyncCallback(async (action: string) => {
+    await Promise.resolve(handleQuickAction(action));
+  });
+
   const getRoleSpecificContent = (role: UserRole) => {
     if (loading) {
       return (
@@ -929,8 +985,9 @@ export const Dashboard: React.FC = () => {
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric mb-4">Quick Actions</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <button 
-                  onClick={() => handleQuickAction('create-program')}
-                  className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors"
+                  onClick={() => runQuickAction('create-program')}
+                  disabled={quickActionPending}
+                  className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="text-center">
                     <div className="text-3xl mb-2">📝</div>
@@ -940,8 +997,9 @@ export const Dashboard: React.FC = () => {
                 </button>
                 
                 <button 
-                  onClick={() => handleQuickAction('schedule-session')}
-                  className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors"
+                  onClick={() => runQuickAction('schedule-session')}
+                  disabled={quickActionPending}
+                  className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="text-center">
                     <div className="text-3xl mb-2">📅</div>
@@ -951,8 +1009,9 @@ export const Dashboard: React.FC = () => {
                 </button>
                 
                 <button 
-                  onClick={() => handleQuickAction('send-message')}
-                  className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors"
+                  onClick={() => runQuickAction('send-message')}
+                  disabled={quickActionPending}
+                  className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="text-center">
                     <div className="text-3xl mb-2">💬</div>
@@ -1038,8 +1097,9 @@ export const Dashboard: React.FC = () => {
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white font-ethnocentric mb-4">Quick Actions</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <button 
-                  onClick={() => handleQuickAction('view-packages')}
-                  className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors"
+                  onClick={() => runQuickAction('view-packages')}
+                  disabled={quickActionPending}
+                  className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="text-center">
                     <div className="text-3xl mb-2">📦</div>
@@ -1049,8 +1109,9 @@ export const Dashboard: React.FC = () => {
                 </button>
                 
                 <button 
-                  onClick={() => handleQuickAction('schedule-session')}
-                  className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors"
+                  onClick={() => runQuickAction('schedule-session')}
+                  disabled={quickActionPending}
+                  className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="text-center">
                     <div className="text-3xl mb-2">📅</div>
@@ -1060,8 +1121,9 @@ export const Dashboard: React.FC = () => {
                 </button>
                 
                 <button 
-                  onClick={() => handleQuickAction('send-message')}
-                  className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors"
+                  onClick={() => runQuickAction('send-message')}
+                  disabled={quickActionPending}
+                  className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="text-center">
                     <div className="text-3xl mb-2">💬</div>

@@ -1,48 +1,53 @@
 rules_version = '2';
 service cloud.firestore {
-  match /databases/{database}/documents {
-    // Helper functions for authorization
-    function uid() {
-      return request.auth.uid;
-    }
-    
-    function isSignedIn() {
-      return request.auth != null;
-    }
-    
-    function isPro() {
-      return isSignedIn() && request.auth.token.role == 'PRO';
-    }
-    
-    function isStaff() {
-      return isSignedIn() && request.auth.token.role == 'STAFF';
-    }
-    
-    function isAthlete() {
-      return isSignedIn() && request.auth.token.role == 'ATHLETE';
-    }
-    
-    function isProOrStaff() {
-      return isPro() || isStaff();
-    }
-    
-    function isTeamMember() {
-      return isProOrStaff() || isAthlete();
-    }
-    
-    function proId() {
-      return request.auth.token.proId;
-    }
+  database: {
+    name: "(default)",
+    rules: {
+      // Helper functions for authorization
+      function uid() {
+        return request.auth.uid;
+      }
+      
+      function isSignedIn() {
+        return request.auth != null;
+      }
+      
+      function isPro() {
+        return isSignedIn() && request.auth.token.role == 'PRO';
+      }
+      
+      function isStaff() {
+        return isSignedIn() && request.auth.token.role == 'STAFF';
+      }
+      
+      function isAthlete() {
+        return isSignedIn() && request.auth.token.role == 'ATHLETE';
+      }
+      
+      function isProOrStaff() {
+        return isPro() || isStaff();
+      }
+      
+      function isTeamMember() {
+        return isProOrStaff() || isAthlete();
+      }
+      
+      function proId() {
+        return request.auth.token.proId;
+      }
 
+    // Top-level collections that remain unchanged
+    
     // Users collection - all authenticated users can read their own data
     match /users/{userId} {
       allow read: if isSignedIn() && (
         uid() == userId || // User can read their own data
-        (isProOrStaff() && proId() == resource.data.proId) || // PRO/STAFF can read any team member where proId matches theirs
-        (isAthlete() && proId() == resource.data.proId) || // ATHLETE can read roster of their team (same proId)
+        (isProOrStaff() && proId() == userId) || // PRO/STAFF can read their team's user data
         (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) // PRO can read team member data
       );
       allow write: if isSignedIn() && uid() == userId; // Only self-write
+      
+      // User Subcollections - data is scoped to the user
       
       // User's chats subcollection
       match /chats/{chatId} {

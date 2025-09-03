@@ -89,31 +89,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             }
           }
           
-          // Get custom claims from ID token
-        let finalRole = userData.role;
-        let finalProId = userData.proId;
-        
-        try {
-          const currentUser = auth.currentUser;
-          if (currentUser) {
-            const idToken = await getIdToken(currentUser, true);
-            const claims = JSON.parse(atob(idToken.split('.')[1])) || {};
-            console.log(`[${tabId.current}] Custom claims:`, claims);
-        console.log(`[${tabId.current}] User data from Firestore:`, userData);
-        console.log(`[${tabId.current}] Final role: ${finalRole}, Final proId: ${finalProId}`);
-        console.log(`[${tabId.current}] Current user UID: ${uid}`);
-        console.log(`[${tabId.current}] User document exists: ${userSnap.exists()}`);
-            
-            if (claims.role) finalRole = claims.role;
-            if (claims.proId) finalProId = claims.proId;
-          }
-        } catch (error) {
-          console.error(`[${tabId.current}] Error getting custom claims:`, error);
-        }
-        
-        setUser(userData);
-          setRole(finalRole);
-          setProId(finalProId || null);
+          setUser(userData);
+          setRole(userData.role);
+          setProId(userData.proId || null);
           setProStatus(userData.proStatus || null);
           setLoading(false);
         } else {

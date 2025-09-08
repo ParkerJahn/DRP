@@ -40,7 +40,7 @@ service cloud.firestore {
         uid() == userId || // User can read their own data
         (isProOrStaff() && proId() == resource.data.proId) || // PRO/STAFF can read any team member where proId matches theirs
         (isAthlete() && proId() == resource.data.proId) || // ATHLETE can read roster of their team (same proId)
-        (isPro() && proId() == userId) // PRO can read team member data where proId matches userId
+        (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) // PRO can read team member data
       );
       allow write: if isSignedIn() && uid() == userId; // Only self-write
       
@@ -48,7 +48,7 @@ service cloud.firestore {
       match /chats/{chatId} {
         allow read, write: if isSignedIn() && (
           uid() == userId || // User owns their chats
-          (isPro() && proId() == userId) || // PRO can access team member chats
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can access team member chats
           (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can access chats
         );
         
@@ -56,12 +56,12 @@ service cloud.firestore {
         match /messages/{messageId} {
           allow read: if isSignedIn() && (
             uid() == userId || // User owns their chat messages
-            (isPro() && proId() == userId) || // PRO can read team messages
+            (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can read team messages
             (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can read messages
           );
           allow create: if isSignedIn() && (
             uid() == userId || // User can create messages in their chats
-            (isPro() && proId() == userId) || // PRO can send messages
+            (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can send messages
             (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can send messages
           );
           allow update, delete: if false; // Messages are immutable
@@ -72,17 +72,17 @@ service cloud.firestore {
       match /events/{eventId} {
         allow read: if isSignedIn() && (
           uid() == userId || // User owns their events
-          (isPro() && proId() == userId) || // PRO can read team events
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can read team events
           (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can read events
         );
         allow create, update: if isSignedIn() && (
           uid() == userId || // User can manage their events
-          (isPro() && proId() == userId) || // PRO can manage team events
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can manage team events
           (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can manage events
         );
         allow delete: if isSignedIn() && (
           uid() == userId || // User can delete their events
-          (isPro() && proId() == userId) || // PRO can delete team events
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can delete team events
           (resource.data.createdBy == uid()) // Creator can delete their events
         );
       }
@@ -91,12 +91,12 @@ service cloud.firestore {
       match /programs/{programId} {
         allow read: if isSignedIn() && (
           uid() == userId || // User owns their programs
-          (isPro() && proId() == userId) || // PRO can read team programs
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can read team programs
           (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can read programs
         );
         allow create, update, delete: if isSignedIn() && (
           uid() == userId || // User can manage their programs
-          (isPro() && proId() == userId) || // PRO can manage team programs
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can manage team programs
           (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can manage programs
         );
       }
@@ -105,12 +105,12 @@ service cloud.firestore {
       match /program_templates/{templateId} {
         allow read: if isSignedIn() && (
           uid() == userId || // User owns their templates
-          (isPro() && proId() == userId) || // PRO can read team templates
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can read team templates
           (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can read templates
         );
         allow create, update, delete: if isSignedIn() && (
           uid() == userId || // User can manage their templates
-          (isPro() && proId() == userId) || // PRO can manage team templates
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can manage team templates
           (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can manage templates
         );
       }
@@ -119,12 +119,12 @@ service cloud.firestore {
       match /exercises/{exerciseId} {
         allow read: if isSignedIn() && (
           uid() == userId || // User owns their exercises
-          (isPro() && proId() == userId) || // PRO can read team exercises
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can read team exercises
           (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can read exercises
         );
         allow create, update, delete: if isSignedIn() && (
           uid() == userId || // User can manage their exercises
-          (isPro() && proId() == userId) || // PRO can manage team exercises
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can manage team exercises
           (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can manage exercises
         );
       }
@@ -133,12 +133,12 @@ service cloud.firestore {
       match /trainingPackages/{packageId} {
         allow read: if isSignedIn() && (
           uid() == userId || // User owns their packages
-          (isPro() && proId() == userId) || // PRO can read team packages
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can read team packages
           (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can read packages
         );
         allow create, update, delete: if isSignedIn() && (
           uid() == userId || // User can manage their packages
-          (isPro() && proId() == userId) || // PRO can manage team packages
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can manage team packages
           (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can manage packages
         );
       }
@@ -147,12 +147,12 @@ service cloud.firestore {
       match /packagePurchases/{purchaseId} {
         allow read: if isSignedIn() && (
           uid() == userId || // User owns their purchases
-          (isPro() && proId() == userId) || // PRO can read team purchases
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can read team purchases
           (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can read purchases
         );
         allow create, update: if isSignedIn() && (
           uid() == userId || // User can manage their purchases
-          (isPro() && proId() == userId) // PRO can manage team purchases
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) // PRO can manage team purchases
         );
         allow delete: if false; // No deletions allowed
       }
@@ -161,7 +161,7 @@ service cloud.firestore {
       match /payments/{paymentId} {
         allow read: if isSignedIn() && (
           uid() == userId || // User owns their payments
-          (isPro() && proId() == userId) // PRO can read team payments
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) // PRO can read team payments
         );
         allow write: if false; // Only via Functions/webhooks
       }
@@ -170,16 +170,16 @@ service cloud.firestore {
       match /availabilitySlots/{slotId} {
         allow read: if isSignedIn() && (
           uid() == userId || // User owns their availability
-          (isPro() && proId() == userId) || // PRO can read team availability
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can read team availability
           (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can read availability
         );
         allow create, update: if isSignedIn() && (
           uid() == userId || // User can manage their availability
-          (isPro() && proId() == userId) // PRO can manage team availability
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) // PRO can manage team availability
         );
         allow delete: if isSignedIn() && (
           uid() == userId || // User can delete their availability
-          (isPro() && proId() == userId) // PRO can delete team availability
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) // PRO can delete team availability
         );
       }
       
@@ -187,12 +187,12 @@ service cloud.firestore {
       match /availabilityTemplates/{templateId} {
         allow read: if isSignedIn() && (
           uid() == userId || // User owns their templates
-          (isPro() && proId() == userId) || // PRO can read team templates
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) || // PRO can read team templates
           (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can read templates
         );
         allow create, update, delete: if isSignedIn() && (
           uid() == userId || // User can manage their templates
-          (isPro() && proId() == userId) // PRO can manage team templates
+          (isPro() && get(/databases/$(database)/documents/users/$(userId)).data.proId == uid()) // PRO can manage team templates
         );
       }
     }

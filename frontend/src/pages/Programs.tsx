@@ -603,9 +603,10 @@ const Programs: React.FC = () => {
         });
         if (result.success) {
           if (result.category) {
+            const { id: _ignore, ...categoryWithoutId } = result.category as ExerciseCategory;
             setExerciseCategories(prev => [
               ...prev,
-              { id: result.categoryId as string, ...(result.category as ExerciseCategory) }
+              { id: result.categoryId as string, ...categoryWithoutId }
             ]);
           }
           setNewCategoryName('');

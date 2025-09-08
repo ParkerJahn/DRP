@@ -44,16 +44,16 @@ export const checkUserState = async () => {
   try {
     // Get user document
     const userRef = doc(db, 'users', currentUser.uid);
-    const userSnap = await userRef.get();
+    const userSnap = await (await import('firebase/firestore')).getDoc(userRef);
     
     if (userSnap.exists()) {
       const userData = userSnap.data();
       console.log('👤 Current user state:', {
         uid: currentUser.uid,
         email: currentUser.email,
-        role: userData.role,
-        proId: userData.proId,
-        displayName: userData.displayName,
+        role: userData?.role,
+        proId: userData?.proId,
+        displayName: userData?.displayName,
       });
     } else {
       console.log('❌ User document does not exist');

@@ -3,14 +3,12 @@ import { useAuth } from '../hooks/useAuth';
 import { validateName, validatePhone } from '../utils/validation';
 import { CSRFProtection, SecurityAudit, EnhancedSanitizer } from '../utils/security';
 import PasswordChange from '../components/PasswordChange';
-import PasswordSecurityAdmin from '../components/PasswordSecurityAdmin';
 import { getAuth } from 'firebase/auth';
 
 const Profile: React.FC = () => {
   const { user, refreshUser } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [showPasswordChange, setShowPasswordChange] = useState(false);
-  const [showPasswordSecurityAdmin, setShowPasswordSecurityAdmin] = useState(false);
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -214,97 +212,9 @@ const Profile: React.FC = () => {
     }
   };
 
-  const handleAutoFixProUsers = async () => {
-    if (!user || user.role !== 'PRO') return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // Get the current user's ID token
-      const idToken = await getAuth().currentUser?.getIdToken();
-      
-      if (!idToken) {
-        throw new Error('No authentication token available');
-      }
-      
-      // Call the Cloud Function to auto-fix all PRO users
-      const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/autoFixProUsers', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${idToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        setSuccess(`Auto-fixed ${result.fixedUsers.length} PRO users! Refreshing...`);
-        // Refresh user data
-        await refreshUser();
-        setTimeout(() => setSuccess(null), 5000);
-      } else {
-        throw new Error(result.error || 'Failed to auto-fix PRO users');
-      }
-      
-    } catch (error) {
-      console.error('Error auto-fixing PRO users:', error);
-      setError('Failed to auto-fix PRO users. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const handleDataMigration = async () => {
-    if (!user || user.role !== 'PRO') return;
 
-    setLoading(true);
-    setError(null);
 
-    try {
-      // Get the current user's ID token
-      const idToken = await getAuth().currentUser?.getIdToken();
-
-      if (!idToken) {
-        throw new Error('No authentication token available');
-      }
-
-             // Call the Cloud Function to run the data migration
-       const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/migrateToSubcollections', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${idToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (result.success) {
-        setSuccess('Data migration initiated successfully! Refreshing...');
-        // Refresh user data
-        await refreshUser();
-        setTimeout(() => setSuccess(null), 5000);
-      } else {
-        throw new Error(result.error || 'Failed to initiate data migration');
-      }
-
-    } catch (error) {
-      console.error('Error initiating data migration:', error);
-      setError('Failed to initiate data migration. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   if (!user) {
     return (
@@ -571,39 +481,6 @@ const Profile: React.FC = () => {
               Change Password
             </button>
             
-            {user.role === 'PRO' && (
-              <button 
-                onClick={() => setShowPasswordSecurityAdmin(true)}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-              >
-                Password Security Admin
-              </button>
-            )}
-            
-            {user.role === 'PRO' && (
-              <button
-                onClick={handleAutoFixProUsers}
-                disabled={loading}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Auto-Fix All PRO Users
-              </button>
-            )}
-            
-            {user.role === 'PRO' && (
-              <button
-                onClick={handleDataMigration}
-                disabled={loading}
-                className={`px-4 py-2 text-white rounded-lg transition-colors ${
-                  loading 
-                    ? 'bg-gray-400 cursor-not-allowed' 
-                    : 'bg-blue-600 hover:bg-blue-700'
-                }`}
-              >
-                {loading ? 'Migrating...' : 'Migrate Data to Subcollections'}
-              </button>
-            )}
-            
             <button className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">
               Delete Account
             </button>
@@ -611,7 +488,6 @@ const Profile: React.FC = () => {
         </div>
       </div>
       {showPasswordChange && <PasswordChange onClose={() => setShowPasswordChange(false)} />}
-      {showPasswordSecurityAdmin && <PasswordSecurityAdmin onClose={() => setShowPasswordSecurityAdmin(false)} />}
     </div>
   );
 };

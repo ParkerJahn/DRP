@@ -9,7 +9,7 @@ import About from './pages/About';
 import Features from './pages/Features';
 import Pricing from './pages/Pricing';
 import Contact from './pages/Contact';
-import GetStarted from './pages/GetStarted';
+
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Dashboard } from './components/Dashboard';
 import TeamManagement from './components/TeamManagement';
@@ -144,20 +144,13 @@ function AppContent() {
               </div>
             </div>
             
-            {/* Right: Get Started Button */}
-            <div className="flex justify-center sm:justify-end w-full sm:w-auto space-x-3">
+            {/* Right: Sign In Button */}
+            <div className="flex justify-center sm:justify-end w-full sm:w-auto">
               <a 
                 href={ROUTES.AUTH}
-                className="px-6 py-3 border border-indigo-400 text-indigo-300 rounded-lg hover:bg-indigo-400 hover:text-white transition-all duration-200 font-medium text-sm w-full sm:w-auto text-center"
-              >
-                Sign In
-              </a>
-              <a 
-                href={ROUTES.GET_STARTED} 
-                onClick={() => console.log('Get Started button clicked!')}
                 className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-200 font-medium text-sm w-full sm:w-auto text-center"
               >
-                Get Started
+                Sign In
               </a>
             </div>
           </nav>
@@ -180,13 +173,12 @@ function AppContent() {
             </p>
             
             {/* CTA Buttons */}
-            <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 mb-12 sm:mb-16 px-4">
+            <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 mb-12 sm:mb-16 px-4 justify-center">
               <a
-                href={ROUTES.GET_STARTED}
-                onClick={() => console.log('Hero Get Started button clicked!')}
+                href={ROUTES.AUTH}
                 className="inline-block bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg font-semibold text-base sm:text-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl cursor-pointer w-full sm:w-auto text-center"
               >
-                Start Free Trial
+                Sign In
               </a>
               <a
                 href={ROUTES.FEATURES}
@@ -358,21 +350,7 @@ function AppContent() {
             </div>
           </div>
 
-          {/* Mobile-Optimized Final CTA Section */}
-          <div className="px-4 sm:px-6 py-12 sm:py-20 bg-black bg-opacity-20">
-            <div className="text-center">
-              <h3 className="text-2xl sm:text-3xl font-bold text-white mb-4 sm:mb-6 px-2">Ready to Transform Your Team?</h3>
-              <p className="text-lg sm:text-xl text-gray-200 mb-6 sm:mb-8 max-w-2xl mx-auto px-4">
-                                 Join thousands of coaches who are already using DRP Workshop to build stronger, more successful teams.
-              </p>
-              <a
-                href={ROUTES.GET_STARTED}
-                className="inline-block bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-8 sm:px-10 py-3 sm:py-4 rounded-lg font-semibold text-lg sm:text-xl hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl w-full sm:w-auto max-w-xs mx-auto"
-              >
-                Get Started Today
-              </a>
-            </div>
-          </div>
+
 
           {/* Mobile-Optimized Footer */}
           <footer className="px-4 sm:px-6 py-6 sm:py-8 border-t border-gray-700">
@@ -387,7 +365,6 @@ function AppContent() {
       <Route path={ROUTES.FEATURES} element={<Features />} />
       <Route path={ROUTES.PRICING} element={<Pricing />} />
       <Route path={ROUTES.CONTACT} element={<Contact />} />
-      <Route path={ROUTES.GET_STARTED} element={<GetStarted />} />
       <Route path={ROUTES.AUTH} element={
         <Auth onAuthSuccess={() => {
           // After successful auth, redirect to dashboard

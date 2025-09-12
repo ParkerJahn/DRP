@@ -65,10 +65,9 @@ const Pricing: React.FC = () => {
           </div>
         </div>
         
-        {/* Right: Get Started Button */}
-        <div className="flex justify-center sm:justify-end w-full sm:w-auto space-x-3">
-          <a href={ROUTES.AUTH} className="px-6 py-3 border border-indigo-400 text-indigo-300 rounded-lg hover:bg-indigo-400 hover:text-white transition-all duration-200 font-medium text-sm w-full sm:w-auto text-center">Sign In</a>
-          <a href={ROUTES.GET_STARTED} className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-200 font-medium text-sm w-full sm:w-auto text-center">Get Started</a>
+        {/* Right: Sign In Button */}
+        <div className="flex justify-center sm:justify-end w-full sm:w-auto">
+          <a href={ROUTES.AUTH} className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-200 font-medium text-sm w-full sm:w-auto text-center">Sign In</a>
         </div>
       </nav>
 
@@ -198,7 +197,7 @@ const Pricing: React.FC = () => {
                       href={ROUTES.AUTH}
                       className="w-full inline-block bg-white text-indigo-600 px-4 py-2 rounded-lg font-semibold hover:bg-gray-100 transition-all duration-300 text-sm"
                     >
-                      Get Started
+                      Sign In
                     </a>
                   </div>
                 </div>
@@ -416,7 +415,7 @@ const Pricing: React.FC = () => {
               href={ROUTES.AUTH}
               className="inline-block bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-8 py-4 rounded-lg font-semibold text-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
             >
-              Start Free Trial
+              Sign In
             </a>
             <a
               href={ROUTES.CONTACT}

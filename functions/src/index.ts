@@ -1,7 +1,6 @@
-import {setGlobalOptions, logger} from "firebase-functions";
-import {onRequest, onCall} from "firebase-functions/v2/https";
-import {onDocumentUpdated} from "firebase-functions/v2/firestore";
-
+import { setGlobalOptions, logger } from "firebase-functions";
+import { onRequest, onCall } from "firebase-functions/v2/https";
+import { onDocumentUpdated } from "firebase-functions/v2/firestore";
 import {initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
 import {getFirestore} from "firebase-admin/firestore";
@@ -667,511 +666,6 @@ export const stripeWebhook = onRequest({
   }
 });
 
-// Firebase Auth trigger - Creates user document when new user signs up
-export const onUserCreate = onRequest({
-  maxInstances: 5,
-  memory: "256MiB",
-  timeoutSeconds: 30,
-}, async (request, response) => {
-  try {
-    // This function will be triggered by Firebase Auth
-    const {uid, email, displayName} = request.body;
-
-    if (!uid) {
-      response.status(400).send("No user ID provided");
-      return;
-    }
-
-    // Create user document in Firestore
-    await db.collection("users").doc(uid).set({
-      uid: uid,
-      email: email || "",
-      displayName: displayName || "",
-      role: "ATHLETE", // Default role
-      proStatus: "inactive", // Default status
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    logger.info("User document created for:", uid);
-    response.status(200).send("User created successfully");
-  } catch (error) {
-    logger.error("Error creating user document:", error);
-    response.status(500).send("Failed to create user");
-  }
-});
-
-// Invite validation function - Validates invite tokens and
-// checks seat availability
-export const validateInvite = onRequest({
-  cors: true,
-  maxInstances: 5,
-  memory: "256MiB",
-  timeoutSeconds: 30,
-}, async (request, response) => {
-  // Handle CORS preflight
-  response.set("Access-Control-Allow-Origin", "*");
-  response.set("Access-Control-Allow-Methods", "GET, POST");
-  response.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  if (request.method === "OPTIONS") {
-    response.status(204).send("");
-    return;
-  }
-
-  try {
-    const {token} = request.body;
-
-    if (!token) {
-      response.status(400).json({error: "Missing invite token"});
-      return;
-    }
-
-    // Hash the token to compare with stored hash
-    const tokenHash = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(token)
-    )
-      .then((hash) => Array.from(new Uint8Array(hash))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("")
-      );
-
-    // Find invite by token hash
-    const invitesQuery = await db.collection("invites")
-      .where("tokenHash", "==", tokenHash)
-      .limit(1)
-      .get();
-
-    if (invitesQuery.empty) {
-      response.status(404).json({error: "Invalid invite token"});
-      return;
-    }
-
-    const inviteDoc = invitesQuery.docs[0];
-    const inviteData = inviteDoc.data();
-
-    // Check if invite is already claimed
-    if (inviteData.claimed) {
-      response.status(400).json({error: "Invite has already been claimed"});
-      return;
-    }
-
-    // Check if invite is expired
-    if (inviteData.expiresAt.toDate() < new Date()) {
-      response.status(400).json({error: "Invite has expired"});
-      return;
-    }
-
-    // Validate seat availability
-    const validation = await validateInviteAndSeats(
-      inviteData.proId,
-      inviteData.role
-    );
-
-    if (validation.valid) {
-      // Fetch PRO user and team information
-      const proUserDoc = await db.collection("users")
-        .doc(inviteData.proId).get();
-      const teamDoc = await db.collection("teams")
-        .doc(inviteData.proId).get();
-
-      const proUserData = proUserDoc.exists ? proUserDoc.data() : null;
-      const teamData = teamDoc.exists ? teamDoc.data() : null;
-
-      const proUserName = proUserData?.displayName ||
-        proUserData?.firstName + " " + proUserData?.lastName ||
-        "Unknown User";
-      const teamName = teamData?.name || "My Team";
-
-      response.status(200).json({
-        valid: true,
-        invite: {
-          id: inviteDoc.id,
-          proId: inviteData.proId,
-          role: inviteData.role,
-          email: inviteData.email,
-          expiresAt: inviteData.expiresAt,
-          proUserName,
-          teamName,
-        },
-      });
-    } else {
-      response.status(400).json({
-        valid: false,
-        error: validation.message,
-      });
-    }
-  } catch (error) {
-    logger.error("Error validating invite:", error);
-    response.status(500).json({error: "Internal server error"});
-  }
-});
-
-// Create invite function - Allows PRO users to create secure invite links
-export const createInvite = onRequest({
-  cors: true,
-  maxInstances: 5,
-  memory: "256MiB",
-  timeoutSeconds: 30,
-}, async (request, response) => {
-  // Handle CORS preflight
-  response.set("Access-Control-Allow-Origin", "*");
-  response.set("Access-Control-Allow-Methods", "GET, POST");
-  response.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  if (request.method === "OPTIONS") {
-    response.status(204).send("");
-    return;
-  }
-
-  try {
-    // Verify user is authenticated and is PRO
-    const authHeader = request.headers.authorization || "";
-    const proId = await verifyFirebaseToken(authHeader);
-
-    if (!proId) {
-      response.status(401).json({error: "Unauthorized"});
-      return;
-    }
-
-    // Verify user is PRO and has active status
-    const proUserDoc = await db.collection("users").doc(proId).get();
-    if (!proUserDoc.exists) {
-      response.status(404).json({error: "PRO user not found"});
-      return;
-    }
-
-    const proUserData = proUserDoc.data();
-    if (proUserData?.role !== "PRO" || proUserData?.proStatus !== "active") {
-      response.status(403).json({
-        error: "Only active PRO users can create invites",
-      });
-      return;
-    }
-
-    const {role, email} = request.body;
-
-    if (!role || !["STAFF", "ATHLETE"].includes(role)) {
-      response.status(400).json({
-        error: "Invalid role. Must be STAFF or ATHLETE",
-      });
-      return;
-    }
-
-    // Check seat availability before creating invite
-    const validation = await validateInviteAndSeats(proId, role);
-    if (!validation.valid) {
-      response.status(400).json({error: validation.message});
-      return;
-    }
-
-    // Create secure invite
-    const invite = await createSecureInvite(proId, role, email);
-
-    // Generate invite URL - fix double slash issue
-    const baseUrl = appBaseUrl.value();
-    // Remove trailing slash if present to prevent double slashes
-    const cleanBaseUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
-    const inviteUrl = `${cleanBaseUrl}/join?token=${invite.token}`;
-
-    logger.info("Invite created successfully:", {
-      proId,
-      role,
-      inviteId: invite.inviteId,
-      baseUrl,
-      cleanBaseUrl,
-      inviteUrl,
-    });
-    // Configuration updated: APP_BASE_URL now points to production
-
-    response.status(200).json({
-      success: true,
-      invite: {
-        id: invite.inviteId,
-        role,
-        email: email || null,
-        expiresAt: invite.expiresAt,
-        inviteUrl,
-      },
-    });
-  } catch (error) {
-    logger.error("Error creating invite:", error);
-    response.status(500).json({error: "Failed to create invite"});
-  }
-});
-
-// Invite redemption function - Processes invite redemption and sets up user
-export const redeemInvite = onRequest({
-  cors: true,
-  maxInstances: 5,
-  memory: "256MiB",
-  timeoutSeconds: 30,
-}, async (request, response) => {
-  // Handle CORS preflight
-  response.set("Access-Control-Allow-Origin", "*");
-  response.set("Access-Control-Allow-Methods", "GET, POST");
-  response.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  if (request.method === "OPTIONS") {
-    response.status(204).send("");
-    return;
-  }
-
-  try {
-    logger.info("🔄 redeemInvite function called");
-
-    const {uid, token, userData} = request.body;
-    logger.info("📥 Request body:", {
-      uid,
-      token: token ? token.substring(0, 20) + "..." : "missing",
-      userData,
-    });
-
-    if (!uid || !token || !userData) {
-      logger.error("❌ Missing required fields:", {
-        uid: !!uid,
-        token: !!token,
-        userData: !!userData,
-      });
-      response.status(400).json({error: "Missing required fields"});
-      return;
-    }
-
-    // Verify the user is authenticated
-    const authHeader = request.headers.authorization || "";
-    logger.info("🔐 Auth header present:", !!authHeader);
-
-    const authenticatedUid = await verifyFirebaseToken(authHeader);
-    logger.info(
-      "✅ Firebase token verified, authenticated UID:", authenticatedUid
-    );
-
-    if (authenticatedUid !== uid) {
-      logger.error("❌ UID mismatch:", {
-        authenticatedUid,
-        requestedUid: uid,
-      });
-      response.status(403).json({error: "Unauthorized"});
-      return;
-    }
-
-    // Hash the token to find the invite
-    logger.info("🔍 Hashing token to find invite...");
-    const tokenHash = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(token)
-    )
-      .then((hash) => Array.from(new Uint8Array(hash))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("")
-      );
-    logger.info("🔍 Token hash generated:", tokenHash.substring(0, 20) + "...");
-
-    // Find and validate the invite
-    logger.info("🔍 Searching for invite with token hash...");
-    const invitesQuery = await db.collection("invites")
-      .where("tokenHash", "==", tokenHash)
-      .limit(1)
-      .get();
-
-    logger.info("🔍 Invite query result size:", invitesQuery.size);
-
-    if (invitesQuery.empty) {
-      logger.error("❌ No invite found with token hash");
-      response.status(404).json({error: "Invalid invite token"});
-      return;
-    }
-
-    const inviteDoc = invitesQuery.docs[0];
-    const inviteData = inviteDoc.data();
-    logger.info("✅ Invite found:", {
-      inviteId: inviteDoc.id,
-      proId: inviteData.proId,
-      role: inviteData.role,
-      claimed: inviteData.claimed,
-      expiresAt: inviteData.expiresAt,
-    });
-
-    // Check if invite is already claimed
-    if (inviteData.claimed) {
-      logger.error("❌ Invite already claimed by:", inviteData.claimedBy);
-      response.status(400).json({error: "Invite has already been claimed"});
-      return;
-    }
-
-    // Check if invite is expired
-    if (inviteData.expiresAt.toDate() < new Date()) {
-      logger.error("❌ Invite expired at:", inviteData.expiresAt.toDate());
-      response.status(400).json({error: "Invite has expired"});
-      return;
-    }
-
-    // Validate seat availability
-    logger.info("🔍 Validating seat availability...");
-    const validation = await validateInviteAndSeats(
-      inviteData.proId,
-      inviteData.role
-    );
-
-    if (!validation.valid) {
-      logger.error("❌ Seat validation failed:", validation.message);
-      response.status(400).json({
-        valid: false,
-        error: validation.message,
-      });
-      return;
-    }
-
-    logger.info("✅ Seat validation passed");
-
-    // Mark invite as claimed
-    logger.info("🔍 Marking invite as claimed...");
-    await inviteDoc.ref.update({
-      claimed: true,
-      claimedBy: uid,
-      claimedAt: new Date(),
-    });
-    logger.info("✅ Invite marked as claimed");
-
-    // Create or update user document with proper role and proId
-    logger.info("🔍 Creating/updating user document...");
-    const userDoc: any = {
-      uid: uid,
-      email: userData.email,
-      displayName: userData.displayName,
-      firstName: userData.firstName,
-      lastName: userData.lastName,
-      phoneNumber: userData.phoneNumber,
-      role: inviteData.role,
-      proId: inviteData.proId,
-      updatedAt: new Date(),
-    };
-
-    // Check if user document already exists to determine if we need createdAt
-    const existingUserDoc = await db.collection("users").doc(uid).get();
-    if (!existingUserDoc.exists) {
-      // New user - add createdAt
-      userDoc.createdAt = new Date();
-      logger.info("✅ Adding createdAt for new user");
-    } else {
-      logger.info("✅ Updating existing user document");
-    }
-
-    await db.collection("users").doc(uid).set(userDoc, {merge: true});
-    logger.info("✅ User document saved successfully");
-
-    // Set custom claims for role-based access
-    logger.info("🔍 Setting custom claims...");
-    await getAuth().setCustomUserClaims(uid, {
-      role: inviteData.role,
-      proId: inviteData.proId,
-    });
-    logger.info("✅ Custom claims set successfully");
-
-    // Update team member count
-    logger.info("🔍 Updating team member count...");
-    const teamRef = db.collection("teams").doc(inviteData.proId);
-    await db.runTransaction(async (transaction) => {
-      const teamDoc = await transaction.get(teamRef);
-      if (teamDoc.exists) {
-        const currentData = teamDoc.data();
-        const memberType = inviteData.role === "STAFF" ? "staff" : "athlete";
-        const newCount = (currentData?.membersCount?.[memberType] || 0) + 1;
-
-        logger.info("✅ Updating existing team:", {
-          memberType,
-          oldCount: currentData?.membersCount?.[memberType] || 0,
-          newCount,
-        });
-
-        transaction.update(teamRef, {
-          [`membersCount.${memberType}`]: newCount,
-          updatedAt: new Date(),
-        });
-      } else {
-        // Create team document if it doesn't exist
-        logger.info("✅ Creating new team document");
-        transaction.set(teamRef, {
-          proId: inviteData.proId,
-          name: "My Team",
-          membersCount: {
-            staff: inviteData.role === "STAFF" ? 1 : 0,
-            athlete: inviteData.role === "ATHLETE" ? 1 : 0,
-          },
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
-      }
-    });
-    logger.info("✅ Team member count updated successfully");
-
-    logger.info("🎉 User successfully redeemed invite:", {
-      uid,
-      role: inviteData.role,
-      proId: inviteData.proId,
-    });
-
-    response.status(200).json({
-      success: true,
-      message: "Invite redeemed successfully",
-      user: {
-        role: inviteData.role,
-        proId: inviteData.proId,
-      },
-    });
-  } catch (error) {
-    logger.error("❌ Error redeeming invite:", error);
-    response.status(500).json({error: "Failed to redeem invite"});
-  }
-});
-
-// export const helloWorld = onRequest((request, response) => {
-//   logger.info("Hello logs!", {structuredData: true});
-//   response.send("Hello from Firebase!");
-// });
-
-// Custom Claims Functions - Using onRequest pattern to match existing code
-export const setCustomClaims = onRequest({
-  maxInstances: 5,
-  memory: "256MiB",
-  timeoutSeconds: 30,
-}, async (request, response) => {
-  try {
-    const {uid, role, proId} = request.body;
-
-    if (!uid) {
-      response.status(400).json({error: "No user ID provided"});
-      return;
-    }
-
-    logger.info(`Setting custom claims for user: ${uid}`);
-
-    // Set custom claims
-    const customClaims = {
-      role: role || "ATHLETE",
-      proId: proId || uid,
-      email: request.body.email,
-      emailVerified: request.body.emailVerified || false,
-    };
-
-    await getAuth().setCustomUserClaims(uid, customClaims);
-
-    logger.info(`Successfully set custom claims for ${uid}:`, customClaims);
-
-    // Update the user document with the custom claims info
-    await db.collection("users").doc(uid).update({
-      customClaimsSet: true,
-      customClaimsSetAt: new Date(),
-    });
-
-    response.status(200).json({success: true, customClaims});
-  } catch (error) {
-    logger.error("Error setting custom claims:", error);
-    response.status(500).json({error: "Failed to set custom claims"});
-  }
-});
-
 export const refreshCustomClaims = onRequest({
   cors: true,
   maxInstances: 5,
@@ -1242,64 +736,6 @@ export const refreshCustomClaims = onRequest({
     } else {
       response.status(500).json({error: "Failed to refresh custom claims"});
     }
-  }
-});
-
-// Scheduled function to clean up expired invites every hour
-export const cleanupExpiredInvites = onRequest({
-  cors: true,
-  maxInstances: 1, // Only need one instance for cleanup
-  memory: "256MiB",
-  timeoutSeconds: 60,
-}, async (request, response) => {
-  // Handle CORS preflight
-  response.set("Access-Control-Allow-Origin", "*");
-  response.set("Access-Control-Allow-Methods", "GET, POST");
-  response.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  if (request.method === "OPTIONS") {
-    response.status(204).send("");
-    return;
-  }
-
-  try {
-    logger.info("Starting cleanup of expired invites...");
-
-    const now = new Date();
-
-    // Find all expired invites
-    const expiredInvitesQuery = await db.collection("invites")
-      .where("expiresAt", "<", now)
-      .get();
-
-    if (expiredInvitesQuery.empty) {
-      logger.info("No expired invites found");
-      response.status(200).json({
-        message: "No expired invites found",
-        deletedCount: 0,
-      });
-      return;
-    }
-
-    // Delete expired invites in batches
-    const batch = db.batch();
-    let deletedCount = 0;
-
-    expiredInvitesQuery.docs.forEach((doc) => {
-      batch.delete(doc.ref);
-      deletedCount++;
-    });
-
-    await batch.commit();
-
-    logger.info(`Successfully deleted ${deletedCount} expired invites`);
-    response.status(200).json({
-      message: `Successfully deleted ${deletedCount} expired invites`,
-      deletedCount,
-    });
-  } catch (error) {
-    logger.error("Error cleaning up expired invites:", error);
-    response.status(500).json({error: "Failed to cleanup expired invites"});
   }
 });
 
@@ -1473,96 +909,6 @@ export const cleanupOrphanedUsers = onCall(
   }
 );
 
-// Automatically fix PRO users who don't have proId set
-export const autoFixProUsers = onRequest({
-  cors: true,
-  maxInstances: 5,
-  memory: "256MiB",
-  timeoutSeconds: 30,
-}, async (request, response) => {
-  // Handle CORS preflight
-  response.set("Access-Control-Allow-Origin", "*");
-  response.set("Access-Control-Allow-Methods", "POST");
-  response.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  if (request.method === "OPTIONS") {
-    response.status(204).send("");
-    return;
-  }
-
-  try {
-    // Verify user is authenticated and is PRO
-    const userId = await verifyFirebaseToken(
-      request.headers.authorization || ""
-    );
-
-    // Check if user is PRO
-    const userDoc = await db.collection("users").doc(userId).get();
-    if (!userDoc.exists || userDoc.data()?.role !== "PRO") {
-      response.status(403).json({
-        error: "Only PRO users can call this function",
-      });
-      return;
-    }
-
-    logger.info("Auto-fixing PRO users for:", userId);
-
-    // Find all PRO users
-    const proUsersQuery = await db.collection("users")
-      .where("role", "==", "PRO")
-      .get();
-
-    const fixedUsers: string[] = [];
-    const alreadyFixedUsers: string[] = [];
-
-    for (const doc of proUsersQuery.docs) {
-      const uid = doc.id;
-      const userData = doc.data();
-
-      // Check if proId is missing, null, undefined, or doesn't match uid
-      const needsFix = !userData.proId ||
-                      userData.proId === null ||
-                      userData.proId === undefined ||
-                      userData.proId !== uid;
-
-      if (needsFix) {
-        // Set proId to their own UID
-        await db.collection("users").doc(uid).update({
-          proId: uid,
-          updatedAt: new Date(),
-        });
-
-        // Update their custom claims
-        await getAuth().setCustomUserClaims(uid, {
-          role: "PRO",
-          proId: uid,
-        });
-
-        fixedUsers.push(uid);
-        logger.info("Auto-fixed PRO user:", uid);
-      } else {
-        alreadyFixedUsers.push(uid);
-        logger.info("PRO user already has correct proId:", uid);
-      }
-    }
-
-    logger.info("Auto-fixed PRO users:", fixedUsers);
-    logger.info("Already fixed PRO users:", alreadyFixedUsers);
-
-    response.status(200).json({
-      success: true,
-      message: `Auto-fixed ${fixedUsers.length} PRO users, ` +
-        `${alreadyFixedUsers.length} already correct`,
-      fixedUsers,
-      alreadyFixedUsers,
-      totalProUsers: fixedUsers.length + alreadyFixedUsers.length,
-    });
-  } catch (error) {
-    logger.error("Error auto-fixing PRO users:", error);
-    response.status(500).json({error: "Failed to auto-fix PRO users"});
-  }
-});
-
 // Enhanced function to fix existing PRO user proId field
 export const fixExistingProUser = onRequest({
   cors: true,
@@ -1619,101 +965,6 @@ export const fixExistingProUser = onRequest({
   } catch (error) {
     logger.error("Error fixing PRO user:", error);
     response.status(500).json({error: "Failed to fix PRO user"});
-  }
-});
-
-// Manually fix specific PRO users by UID
-export const fixSpecificProUsers = onRequest({
-  cors: true,
-  maxInstances: 5,
-  memory: "256MiB",
-  timeoutSeconds: 30,
-}, async (request, response) => {
-  // Handle CORS preflight
-  response.set("Access-Control-Allow-Origin", "*");
-  response.set("Access-Control-Allow-Methods", "POST");
-  response.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  if (request.method === "OPTIONS") {
-    response.status(204).send("");
-    return;
-  }
-
-  try {
-    // Verify user is authenticated and is PRO
-    const userId = await verifyFirebaseToken(
-      request.headers.authorization || ""
-    );
-
-    // Check if user is PRO
-    const userDoc = await db.collection("users").doc(userId).get();
-    if (!userDoc.exists || userDoc.data()?.role !== "PRO") {
-      response.status(403).json({
-        error: "Only PRO users can call this function",
-      });
-      return;
-    }
-
-    const {userUids} = request.body;
-
-    if (!userUids || !Array.isArray(userUids)) {
-      response.status(400).json({error: "userUids array is required"});
-      return;
-    }
-
-    logger.info("Fixing specific PRO users:", userUids);
-
-    const fixedUsers: string[] = [];
-    const failedUsers: string[] = [];
-
-    for (const uid of userUids) {
-      try {
-        // Check if user exists and is PRO
-        const userDoc = await db.collection("users").doc(uid).get();
-        if (!userDoc.exists) {
-          failedUsers.push(`${uid} (user not found)`);
-          continue;
-        }
-
-        const userData = userDoc.data();
-        if (userData?.role !== "PRO") {
-          failedUsers.push(`${uid} (not a PRO user)`);
-          continue;
-        }
-
-        // Set proId to their own UID
-        await db.collection("users").doc(uid).update({
-          proId: uid,
-          updatedAt: new Date(),
-        });
-
-        // Update their custom claims
-        await getAuth().setCustomUserClaims(uid, {
-          role: "PRO",
-          proId: uid,
-        });
-
-        fixedUsers.push(uid);
-        logger.info("Fixed specific PRO user:", uid);
-      } catch (error) {
-        logger.error("Error fixing specific PRO user:", uid, error);
-        failedUsers.push(`${uid} (error: ${error})`);
-      }
-    }
-
-    logger.info("Fixed specific PRO users:", fixedUsers);
-    logger.info("Failed to fix users:", failedUsers);
-
-    response.status(200).json({
-      success: true,
-      message: `Fixed ${fixedUsers.length} PRO users, ` +
-        `${failedUsers.length} failed`,
-      fixedUsers,
-      failedUsers,
-    });
-  } catch (error) {
-    logger.error("Error fixing specific PRO users:", error);
-    response.status(500).json({error: "Failed to fix specific PRO users"});
   }
 });
 
@@ -1777,15 +1028,34 @@ export const activateProAccount = onCall({
       throw new Error("Invalid activation method");
     }
 
-    // Get user document
-    const userDoc = await db.collection("users").doc(userId).get();
-    if (!userDoc.exists) {
-      throw new Error("User not found");
+    // Get user document with retry mechanism for timing issues
+    let userDoc;
+    let userData;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (retryCount < maxRetries) {
+      userDoc = await db.collection("users").doc(userId).get();
+      
+      if (userDoc.exists) {
+        userData = userDoc.data();
+        break;
+      }
+      
+      // Wait a bit before retrying (timing issue with document creation)
+      if (retryCount < maxRetries - 1) {
+        logger.info(`User document not found, retrying... (${retryCount + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      retryCount++;
+    }
+    
+    if (!userDoc?.exists || !userData) {
+      throw new Error("User document not found. Please wait a moment after registration and try again.");
     }
 
-    const userData = userDoc.data();
     if (userData?.role !== "PRO") {
-      throw new Error("Only PRO users can activate their accounts");
+      throw new Error(`Only PRO users can activate their accounts. Your role: ${userData?.role || 'not set'}`);
     }
 
     if (userData?.proStatus === "active") {
@@ -1795,7 +1065,11 @@ export const activateProAccount = onCall({
     // Validate activation method
     if (activationMethod === "free_access") {
       // Validate free access code
-      if (!freeAccessCode || freeAccessCode !== "DRP-X7K9M2P4") {
+      const expectedCode = process.env.FREE_ACCESS_CODE;
+      if (!expectedCode) {
+        throw new Error("Free access code not configured on server");
+      }
+      if (!freeAccessCode || freeAccessCode !== expectedCode) {
         throw new Error("Invalid free access code");
       }
 
@@ -2201,6 +1475,44 @@ async function redeemPersistentInvite(
   }
 }
 
+/**
+ * Clean up persistent invites with incorrect redemptions structure
+ * @param {string} proId PRO user ID
+ * @return {Promise<void>}
+ */
+async function cleanupPersistentInvitesStructure(proId: string): Promise<void> {
+  try {
+    const invitesQuery = await db.collection("persistentInvites")
+      .where("proId", "==", proId)
+      .get();
+
+    const batch = db.batch();
+    let needsUpdate = false;
+
+    invitesQuery.docs.forEach((doc) => {
+      const data = doc.data();
+      
+      // Check if redemptions is not an array or is malformed
+      if (!Array.isArray(data.redemptions)) {
+        logger.info(`Fixing redemptions structure for invite ${doc.id}`);
+        batch.update(doc.ref, {
+          redemptions: [],
+          redeemedCount: 0, // Reset count since structure was wrong
+          updatedAt: new Date(),
+        });
+        needsUpdate = true;
+      }
+    });
+
+    if (needsUpdate) {
+      await batch.commit();
+      logger.info(`✅ Fixed redemptions structure for PRO ${proId}`);
+    }
+  } catch (error) {
+    logger.error("Error cleaning up persistent invites structure:", error);
+  }
+}
+
 // ============================================================================
 // PERSISTENT INVITE MANAGEMENT ENDPOINTS
 // ============================================================================
@@ -2249,6 +1561,9 @@ export const getPersistentInvites = onRequest({
       return;
     }
 
+    // Clean up any malformed redemptions data
+    await cleanupPersistentInvitesStructure(proId);
+
     // Get or initialize persistent invites
     const {athleteInvite, staffInvite} =
       await initializePersistentInvites(proId);
@@ -2259,9 +1574,9 @@ export const getPersistentInvites = onRequest({
       baseUrl.slice(0, -1) : baseUrl;
 
     const athleteInviteUrl =
-      `${cleanBaseUrl}/join?code=${athleteInvite.inviteCode}`;
+      `${cleanBaseUrl}/join?token=${athleteInvite.inviteCode}`;
     const staffInviteUrl =
-      `${cleanBaseUrl}/join?code=${staffInvite.inviteCode}`;
+      `${cleanBaseUrl}/join?token=${staffInvite.inviteCode}`;
 
     response.status(200).json({
       success: true,
@@ -2303,6 +1618,77 @@ export const getPersistentInvites = onRequest({
 /**
  * Regenerate invite link for a specific role
  */
+/**
+ * One-time cleanup function to fix all persistent invites with malformed redemptions
+ */
+export const cleanupAllPersistentInvites = onRequest({
+  cors: true,
+  maxInstances: 1,
+  memory: "512MiB",
+  timeoutSeconds: 60,
+}, async (request, response) => {
+  // Handle CORS preflight
+  response.set("Access-Control-Allow-Origin", "*");
+  response.set("Access-Control-Allow-Methods", "POST");
+  response.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return;
+  }
+
+  try {
+    // Get all persistent invites
+    const allInvitesQuery = await db.collection("persistentInvites").get();
+    
+    if (allInvitesQuery.empty) {
+      response.status(200).json({
+        success: true,
+        message: "No persistent invites found",
+        fixed: 0
+      });
+      return;
+    }
+
+    const batch = db.batch();
+    let fixedCount = 0;
+
+    allInvitesQuery.docs.forEach((doc) => {
+      const data = doc.data();
+      
+      // Check if redemptions is not an array or is malformed
+      if (!Array.isArray(data.redemptions)) {
+        logger.info(`Fixing redemptions structure for invite ${doc.id} (${data.role})`);
+        batch.update(doc.ref, {
+          redemptions: [],
+          redeemedCount: 0, // Reset count since structure was wrong
+          updatedAt: new Date(),
+        });
+        fixedCount++;
+      }
+    });
+
+    if (fixedCount > 0) {
+      await batch.commit();
+      logger.info(`✅ Fixed ${fixedCount} persistent invites`);
+    }
+
+    response.status(200).json({
+      success: true,
+      message: `Fixed ${fixedCount} persistent invites with malformed redemptions`,
+      fixed: fixedCount,
+      total: allInvitesQuery.docs.length
+    });
+
+  } catch (error) {
+    logger.error("Error cleaning up all persistent invites:", error);
+    response.status(500).json({
+      error: "Failed to cleanup persistent invites",
+      details: error instanceof Error ? error.message : "Unknown error"
+    });
+  }
+});
+
 export const regenerateInviteLink = onRequest({
   cors: true,
   maxInstances: 5,
@@ -2391,7 +1777,7 @@ export const regenerateInviteLink = onRequest({
     // Generate new invite URL
     const baseUrl = appBaseUrl.value();
     const cleanBaseUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
-    const newInviteUrl = `${cleanBaseUrl}/join?code=${newToken}`;
+    const newInviteUrl = `${cleanBaseUrl}/join?token=${newToken}`;
 
     logger.info("✅ Invite link regenerated:", {
       proId,
@@ -2632,625 +2018,4 @@ export const redeemPersistentInviteLink = onRequest({
 // MIGRATION FUNCTION FOR EXISTING USERS
 // ============================================================================
 
-/**
- * Migrate existing PRO users to the new persistent invite system
- * This function should be called once to set up existing PRO users
- */
-export const migrateToPersistentInvites = onRequest({
-  cors: true,
-  maxInstances: 1, // Only one instance for migration
-  memory: "256MiB",
-  timeoutSeconds: 300, // 5 minutes for migration
-}, async (request, response) => {
-  // Handle CORS preflight
-  response.set("Access-Control-Allow-Origin", "*");
-  response.set("Access-Control-Allow-Methods", "POST");
-  response.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  if (request.method === "OPTIONS") {
-    response.status(204).send("");
-    return;
-  }
-
-  try {
-    // Verify user is authenticated and is PRO (admin)
-    const authHeader = request.headers.authorization || "";
-    const proId = await verifyFirebaseToken(authHeader);
-
-    if (!proId) {
-      response.status(401).json({error: "Unauthorized"});
-      return;
-    }
-
-    // Verify user is PRO and has active status
-    const proUserDoc = await db.collection("users").doc(proId).get();
-    if (!proUserDoc.exists) {
-      response.status(404).json({error: "PRO user not found"});
-      return;
-    }
-
-    const proUserData = proUserDoc.data();
-    if (proUserData?.role !== "PRO" || proUserData?.proStatus !== "active") {
-      response.status(403).json({
-        error: "Only active PRO users can run migration",
-      });
-      return;
-    }
-
-    logger.info(
-      "🔄 Starting migration to persistent invite system for PRO:",
-      proId
-    );
-
-    // Initialize persistent invites for this PRO
-    const {athleteInvite, staffInvite} =
-      await initializePersistentInvites(proId);
-
-    // Count existing team members to set initial redemption counts
-    const existingAthletesQuery = await db.collection("users")
-      .where("proId", "==", proId)
-      .where("role", "==", "ATHLETE")
-      .get();
-
-    const existingStaffQuery = await db.collection("users")
-      .where("proId", "==", proId)
-      .where("role", "==", "STAFF")
-      .get();
-
-    const athleteCount = existingAthletesQuery.size;
-    const staffCount = existingStaffQuery.size;
-
-    // Update athlete invite with existing count
-    if (athleteCount > 0) {
-      await db.collection("persistentInvites").doc(athleteInvite.id).update({
-        redeemedCount: athleteCount,
-        updatedAt: new Date(),
-      });
-    }
-
-    // Update staff invite with existing count
-    if (staffCount > 0) {
-      await db.collection("persistentInvites").doc(staffInvite.id).update({
-        redeemedCount: staffCount,
-        updatedAt: new Date(),
-      });
-    }
-
-    logger.info("✅ Migration completed for PRO:", proId, {
-      athleteCount,
-      staffCount,
-      athleteInviteId: athleteInvite.id,
-      staffInviteId: staffInvite.id,
-    });
-
-    response.status(200).json({
-      success: true,
-      message: "Migration completed successfully",
-      results: {
-        athleteInvite: {
-          id: athleteInvite.id,
-          redeemedCount: athleteCount,
-          maxRedemptions: athleteInvite.maxRedemptions,
-        },
-        staffInvite: {
-          id: staffInvite.id,
-          redeemedCount: staffCount,
-          maxRedemptions: staffInvite.maxRedemptions,
-        },
-      },
-    });
-  } catch (error) {
-    logger.error("❌ Error during migration:", error);
-    response.status(500).json({
-      error: "Migration failed",
-      details: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-});
-
-// ============================================================================
-// DATA MIGRATION FUNCTIONS
-// ============================================================================
-
-/**
- * Migrate existing data from flat collections to user subcollections
- * This function should be called once to move existing data to the new
- * architecture
- */
-export const migrateToSubcollections = onRequest({
-  cors: true,
-  maxInstances: 1, // Only one instance for migration
-  memory: "512MiB", // More memory for migration
-  timeoutSeconds: 540, // 9 minutes for migration
-}, async (request, response) => {
-  // Handle CORS preflight
-  response.set("Access-Control-Allow-Origin", "*");
-  response.set("Access-Control-Allow-Methods", "POST");
-  response.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  if (request.method === "OPTIONS") {
-    response.status(204).send("");
-    return;
-  }
-
-  try {
-    // Verify user is authenticated and is PRO (admin)
-    const authHeader = request.headers.authorization || "";
-    const proId = await verifyFirebaseToken(authHeader);
-
-    if (!proId) {
-      response.status(401).json({error: "Unauthorized"});
-      return;
-    }
-
-    // Verify user is PRO and has active status
-    const proUserDoc = await db.collection("users").doc(proId).get();
-    if (!proUserDoc.exists) {
-      response.status(404).json({error: "PRO user not found"});
-      return;
-    }
-
-    const proUserData = proUserDoc.data();
-    if (proUserData?.role !== "PRO" || proUserData?.proStatus !== "active") {
-      response.status(403).json({
-        error: "Only active PRO users can run migration",
-      });
-      return;
-    }
-
-    logger.info(
-      "🔄 Starting migration to subcollection architecture for PRO:",
-      proId
-    );
-
-    // Get all team members for this PRO
-    const teamMembersQuery = await db.collection("users")
-      .where("proId", "==", proId)
-      .get();
-
-    const teamMemberIds = [proId]; // Include PRO user themselves
-    teamMembersQuery.forEach((doc) => {
-      teamMemberIds.push(doc.id);
-    });
-
-    logger.info("📊 Found team members:", teamMemberIds);
-
-    let totalMigrated = 0;
-    const migrationResults = {
-      payments: {migrated: 0, errors: 0},
-      events: {migrated: 0, errors: 0},
-      programs: {migrated: 0, errors: 0},
-      packages: {migrated: 0, errors: 0},
-      packagePurchases: {migrated: 0, errors: 0},
-      exercises: {migrated: 0, errors: 0},
-      availabilitySlots: {migrated: 0, errors: 0},
-      availabilityTemplates: {migrated: 0, errors: 0},
-      chats: {migrated: 0, errors: 0},
-      messages: {migrated: 0, errors: 0},
-    };
-
-    // 1. Migrate payments from flat collection to user subcollections
-    try {
-      logger.info("💰 Migrating payments...");
-      const paymentsQuery = await db.collection("payments")
-        .where("proId", "==", proId)
-        .get();
-
-      for (const paymentDoc of paymentsQuery.docs) {
-        const paymentData = paymentDoc.data();
-        const payerUid = paymentData.payerUid;
-
-        if (payerUid && teamMemberIds.includes(payerUid)) {
-          try {
-            // Create payment in user's subcollection
-            const userPaymentsRef = db.collection("users")
-              .doc(payerUid)
-              .collection("payments");
-
-            await userPaymentsRef.add({
-              ...paymentData,
-              migratedFrom: paymentDoc.id,
-              migratedAt: new Date(),
-            });
-
-            migrationResults.payments.migrated++;
-            totalMigrated++;
-          } catch (error) {
-            logger.error("Error migrating payment:", paymentDoc.id, error);
-            migrationResults.payments.errors++;
-          }
-        }
-      }
-      logger.info("✅ Payments migration completed:", migrationResults.payments);
-    } catch (error) {
-      logger.error("❌ Error during payments migration:", error);
-    }
-
-    // 2. Migrate events from flat collection to user subcollections
-    try {
-      logger.info("📅 Migrating events...");
-      const eventsQuery = await db.collection("events")
-        .where("proId", "==", proId)
-        .get();
-
-      for (const eventDoc of eventsQuery.docs) {
-        const eventData = eventDoc.data();
-        const createdBy = eventData.createdBy || eventData.userId;
-
-        if (createdBy && teamMemberIds.includes(createdBy)) {
-          try {
-            // Create event in user's subcollection
-            const userEventsRef = db.collection("users")
-              .doc(createdBy)
-              .collection("events");
-
-            await userEventsRef.add({
-              ...eventData,
-              migratedFrom: eventDoc.id,
-              migratedAt: new Date(),
-            });
-
-            migrationResults.events.migrated++;
-            totalMigrated++;
-          } catch (error) {
-            logger.error("Error migrating event:", eventDoc.id, error);
-            migrationResults.events.errors++;
-          }
-        }
-      }
-      logger.info("✅ Events migration completed:", migrationResults.events);
-    } catch (error) {
-      logger.error("❌ Error during events migration:", error);
-    }
-
-    // 3. Migrate programs from flat collection to user subcollections
-    try {
-      logger.info("🏋️ Migrating programs...");
-      const programsQuery = await db.collection("programs")
-        .where("proId", "==", proId)
-        .get();
-
-      for (const programDoc of programsQuery.docs) {
-        const programData = programDoc.data();
-        const createdBy = programData.createdBy || programData.userId;
-
-        if (createdBy && teamMemberIds.includes(createdBy)) {
-          try {
-            // Create program in user's subcollection
-            const userProgramsRef = db.collection("users")
-              .doc(createdBy)
-              .collection("programs");
-
-            await userProgramsRef.add({
-              ...programData,
-              migratedFrom: programDoc.id,
-              migratedAt: new Date(),
-            });
-
-            migrationResults.programs.migrated++;
-            totalMigrated++;
-          } catch (error) {
-            logger.error("Error migrating program:", programDoc.id, error);
-            migrationResults.programs.errors++;
-          }
-        }
-      }
-      logger.info("✅ Programs migration completed:", migrationResults.programs);
-    } catch (error) {
-      logger.error("❌ Error during programs migration:", error);
-    }
-
-    // 4. Migrate training packages from flat collection to user subcollections
-    try {
-      logger.info("📦 Migrating training packages...");
-      const packagesQuery = await db.collection("trainingPackages")
-        .where("proId", "==", proId)
-        .get();
-
-      for (const packageDoc of packagesQuery.docs) {
-        const packageData = packageDoc.data();
-        const createdBy = packageData.createdBy || packageData.userId;
-
-        if (createdBy && teamMemberIds.includes(createdBy)) {
-          try {
-            // Create package in user's subcollection
-            const userPackagesRef = db.collection("users")
-              .doc(createdBy)
-              .collection("trainingPackages");
-
-            await userPackagesRef.add({
-              ...packageData,
-              migratedFrom: packageDoc.id,
-              migratedAt: new Date(),
-            });
-
-            migrationResults.packages.migrated++;
-            totalMigrated++;
-          } catch (error) {
-            logger.error("Error migrating package:", packageDoc.id, error);
-            migrationResults.packages.errors++;
-          }
-        }
-      }
-      logger.info(
-        "✅ Training packages migration completed:",
-        migrationResults.packages
-      );
-    } catch (error) {
-      logger.error("❌ Error during training packages migration:", error);
-    }
-
-    // 5. Migrate package purchases from flat collection to user subcollections
-    try {
-      logger.info("🛒 Migrating package purchases...");
-      const purchasesQuery = await db.collection("packagePurchases")
-        .where("proId", "==", proId)
-        .get();
-
-      for (const purchaseDoc of purchasesQuery.docs) {
-        const purchaseData = purchaseDoc.data();
-        const athleteUid = purchaseData.athleteUid;
-
-        if (athleteUid && teamMemberIds.includes(athleteUid)) {
-          try {
-            // Create purchase in user's subcollection
-            const userPurchasesRef = db.collection("users")
-              .doc(athleteUid)
-              .collection("packagePurchases");
-
-            await userPurchasesRef.add({
-              ...purchaseData,
-              migratedFrom: purchaseDoc.id,
-              migratedAt: new Date(),
-            });
-
-            migrationResults.packagePurchases.migrated++;
-            totalMigrated++;
-          } catch (error) {
-            logger.error(
-              "Error migrating package purchase:",
-              purchaseDoc.id,
-              error
-            );
-            migrationResults.packagePurchases.errors++;
-          }
-        }
-      }
-      logger.info(
-        "✅ Package purchases migration completed:",
-        migrationResults.packagePurchases
-      );
-    } catch (error) {
-      logger.error("❌ Error during package purchases migration:", error);
-    }
-
-    // 6. Migrate exercises from flat collection to user subcollections
-    try {
-      logger.info("💪 Migrating exercises...");
-      const exercisesQuery = await db.collection("exercises")
-        .where("proId", "==", proId)
-        .get();
-
-      for (const exerciseDoc of exercisesQuery.docs) {
-        const exerciseData = exerciseDoc.data();
-        const createdBy = exerciseData.createdBy || exerciseData.userId;
-
-        if (createdBy && teamMemberIds.includes(createdBy)) {
-          try {
-            // Create exercise in user's subcollection
-            const userExercisesRef = db.collection("users")
-              .doc(createdBy)
-              .collection("exercises");
-
-            await userExercisesRef.add({
-              ...exerciseData,
-              migratedFrom: exerciseDoc.id,
-              migratedAt: new Date(),
-            });
-
-            migrationResults.exercises.migrated++;
-            totalMigrated++;
-          } catch (error) {
-            logger.error("Error migrating exercise:", exerciseDoc.id, error);
-            migrationResults.exercises.errors++;
-          }
-        }
-      }
-      logger.info(
-        "✅ Exercises migration completed:",
-        migrationResults.exercises
-      );
-    } catch (error) {
-      logger.error("❌ Error during exercises migration:", error);
-    }
-
-    // 7. Migrate availability slots from flat collection to user subcollections
-    try {
-      logger.info("⏰ Migrating availability slots...");
-      const availabilityQuery = await db.collection("availabilitySlots")
-        .where("proId", "==", proId)
-        .get();
-
-      for (const slotDoc of availabilityQuery.docs) {
-        const slotData = slotDoc.data();
-        const userId = slotData.userId;
-
-        if (userId && teamMemberIds.includes(userId)) {
-          try {
-            // Create availability slot in user's subcollection
-            const userSlotsRef = db.collection("users")
-              .doc(userId)
-              .collection("availabilitySlots");
-
-            await userSlotsRef.add({
-              ...slotData,
-              migratedFrom: slotDoc.id,
-              migratedAt: new Date(),
-            });
-
-            migrationResults.availabilitySlots.migrated++;
-            totalMigrated++;
-          } catch (error) {
-            logger.error(
-              "Error migrating availability slot:",
-              slotDoc.id,
-              error
-            );
-            migrationResults.availabilitySlots.errors++;
-          }
-        }
-      }
-      logger.info(
-        "✅ Availability slots migration completed:",
-        migrationResults.availabilitySlots
-      );
-    } catch (error) {
-      logger.error("❌ Error during availability slots migration:", error);
-    }
-
-    // 8. Migrate availability templates from flat collection to
-    // user subcollections
-    try {
-      logger.info("📋 Migrating availability templates...");
-      const templatesQuery = await db.collection("availabilityTemplates")
-        .where("proId", "==", proId)
-        .get();
-
-      for (const templateDoc of templatesQuery.docs) {
-        const templateData = templateDoc.data();
-        const createdBy = templateData.createdBy || templateData.userId;
-
-        if (createdBy && teamMemberIds.includes(createdBy)) {
-          try {
-            // Create availability template in user's subcollection
-            const userTemplatesRef = db.collection("users")
-              .doc(createdBy)
-              .collection("availabilityTemplates");
-
-            await userTemplatesRef.add({
-              ...templateData,
-              migratedFrom: templateDoc.id,
-              migratedAt: new Date(),
-            });
-
-            migrationResults.availabilityTemplates.migrated++;
-            totalMigrated++;
-          } catch (error) {
-            logger.error(
-              "Error migrating availability template:",
-              templateDoc.id,
-              error
-            );
-            migrationResults.availabilityTemplates.errors++;
-          }
-        }
-      }
-      logger.info(
-        "✅ Availability templates migration completed:",
-        migrationResults.availabilityTemplates
-      );
-    } catch (error) {
-      logger.error("❌ Error during availability templates migration:", error);
-    }
-
-    // 9. Migrate chats from flat collection to user subcollections
-    try {
-      logger.info("💬 Migrating chats...");
-      const chatsQuery = await db.collection("chats")
-        .where("proId", "==", proId)
-        .get();
-
-      for (const chatDoc of chatsQuery.docs) {
-        const chatData = chatDoc.data();
-        const createdBy = chatData.createdBy || chatData.userId;
-
-        if (createdBy && teamMemberIds.includes(createdBy)) {
-          try {
-            // Create chat in user's subcollection
-            const userChatsRef = db.collection("users")
-              .doc(createdBy)
-              .collection("chats");
-
-            await userChatsRef.add({
-              ...chatData,
-              migratedFrom: chatDoc.id,
-              migratedAt: new Date(),
-            });
-
-            migrationResults.chats.migrated++;
-            totalMigrated++;
-          } catch (error) {
-            logger.error("Error migrating chat:", chatDoc.id, error);
-            migrationResults.chats.errors++;
-          }
-        }
-      }
-      logger.info("✅ Chats migration completed:", migrationResults.chats);
-    } catch (error) {
-      logger.error("❌ Error during chats migration:", error);
-    }
-
-    // 10. Migrate messages from flat collection to user subcollections
-    try {
-      logger.info("📝 Migrating messages...");
-      const messagesQuery = await db.collection("messages")
-        .where("proId", "==", proId)
-        .get();
-
-      for (const messageDoc of messagesQuery.docs) {
-        const messageData = messageDoc.data();
-        const senderId = messageData.senderId || messageData.userId;
-        const chatId = messageData.chatId;
-
-        if (senderId && teamMemberIds.includes(senderId) && chatId) {
-          try {
-            // Create message in user's chat subcollection
-            const userChatMessagesRef = db.collection("users")
-              .doc(senderId)
-              .collection("chats")
-              .doc(chatId)
-              .collection("messages");
-
-            await userChatMessagesRef.add({
-              ...messageData,
-              migratedFrom: messageDoc.id,
-              migratedAt: new Date(),
-            });
-
-            migrationResults.messages.migrated++;
-            totalMigrated++;
-          } catch (error) {
-            logger.error("Error migrating message:", messageDoc.id, error);
-            migrationResults.messages.errors++;
-          }
-        }
-      }
-      logger.info("✅ Messages migration completed:", migrationResults.messages);
-    } catch (error) {
-      logger.error("❌ Error during messages migration:", error);
-    }
-
-    logger.info("🎉 Migration completed successfully!", {
-      proId,
-      totalMigrated,
-      migrationResults,
-    });
-
-    response.status(200).json({
-      success: true,
-      message: "Migration to subcollections completed successfully",
-      results: {
-        totalMigrated,
-        migrationResults,
-        teamMemberIds,
-      },
-    });
-  } catch (error) {
-    logger.error("❌ Error during migration:", error);
-    response.status(500).json({
-      error: "Migration failed",
-      details: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-});
 

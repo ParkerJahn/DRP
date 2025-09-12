@@ -1286,7 +1286,28 @@ const Calendar: React.FC = () => {
                   <input
                     type="datetime-local"
                     value={eventForm.startsAt}
-                    onChange={(e) => setEventForm(prev => ({ ...prev, startsAt: e.target.value }))}
+                    onChange={(e) => {
+                      const newStartTime = e.target.value;
+                      
+                      // Calculate smart end time (1 hour after start time)
+                      let smartEndTime = eventForm.endsAt;
+                      if (newStartTime) {
+                        const startDate = new Date(newStartTime);
+                        const endDate = new Date(startDate.getTime() + (60 * 60 * 1000)); // Add 1 hour
+                        const suggestedEndTime = endDate.toISOString().slice(0, 16);
+                        
+                        // Update end time if it's empty or before the new start time
+                        if (!eventForm.endsAt || new Date(eventForm.endsAt) <= startDate) {
+                          smartEndTime = suggestedEndTime;
+                        }
+                      }
+                      
+                      setEventForm(prev => ({ 
+                        ...prev, 
+                        startsAt: newStartTime,
+                        endsAt: smartEndTime
+                      }));
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     required
                   />
@@ -1298,33 +1319,122 @@ const Calendar: React.FC = () => {
                   <input
                     type="datetime-local"
                     value={eventForm.endsAt}
-                    onChange={(e) => setEventForm(prev => ({ ...prev, endsAt: e.target.value }))}
+                    min={eventForm.startsAt} // Prevent selecting end time before start time
+                    onChange={(e) => {
+                      const newEndTime = e.target.value;
+                      
+                      // Validate that end time is after start time
+                      if (eventForm.startsAt && newEndTime && new Date(newEndTime) <= new Date(eventForm.startsAt)) {
+                        // If user tries to set end time before start time, set it to 1 hour after start
+                        const startDate = new Date(eventForm.startsAt);
+                        const suggestedEndTime = new Date(startDate.getTime() + (60 * 60 * 1000)).toISOString().slice(0, 16);
+                        setEventForm(prev => ({ ...prev, endsAt: suggestedEndTime }));
+                        return;
+                      }
+                      
+                      setEventForm(prev => ({ ...prev, endsAt: newEndTime }));
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     required
                   />
                 </div>
               </div>
+              <div className="col-span-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  💡 <strong>Smart scheduling:</strong> End time automatically adjusts to 1 hour after start time
+                </p>
+              </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Attendees
-                </label>
-                <select
-                  multiple
-                  value={eventForm.attendees}
-                  onChange={(e) => {
-                    const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
-                    setEventForm(prev => ({ ...prev, attendees: selectedOptions }));
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                >
-                  {teamMembers.map((member) => (
-                    <option key={member.uid} value={member.uid}>
-                      {member.displayName} ({member.role})
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Attendees ({eventForm.attendees.length} selected)
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEventForm(prev => ({
+                          ...prev,
+                          attendees: teamMembers.map(member => member.uid)
+                        }));
+                      }}
+                      className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium"
+                    >
+                      Select All
+                    </button>
+                    <span className="text-xs text-gray-400">•</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEventForm(prev => ({
+                          ...prev,
+                          attendees: []
+                        }));
+                      }}
+                      className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 font-medium"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-48 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 p-2">
+                  {teamMembers.length === 0 ? (
+                    <p className="text-gray-500 dark:text-gray-400 text-sm text-center py-4">
+                      No team members available
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {teamMembers.map((member) => {
+                        const isSelected = eventForm.attendees.includes(member.uid);
+                        return (
+                          <label
+                            key={member.uid}
+                            className="flex items-center space-x-3 p-2 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 cursor-pointer transition-colors"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  // Add attendee
+                                  setEventForm(prev => ({
+                                    ...prev,
+                                    attendees: [...prev.attendees, member.uid]
+                                  }));
+                                } else {
+                                  // Remove attendee
+                                  setEventForm(prev => ({
+                                    ...prev,
+                                    attendees: prev.attendees.filter(uid => uid !== member.uid)
+                                  }));
+                                }
+                              }}
+                              className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 rounded"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                {member.displayName || `${member.firstName} ${member.lastName}`}
+                              </p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                {member.role}
+                                {member.email && ` • ${member.email}`}
+                              </p>
+                            </div>
+                            <div className={`w-2 h-2 rounded-full ${
+                              isSelected 
+                                ? 'bg-indigo-500' 
+                                : 'bg-gray-300 dark:bg-gray-600'
+                            }`} />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  📱 Tap to select/deselect attendees • {eventForm.attendees.length} of {teamMembers.length} selected
+                </p>
               </div>
 
               <div>

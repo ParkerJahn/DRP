@@ -78,12 +78,12 @@ const JoinInvite: React.FC = () => {
 
   const validateInviteToken = async (token: string) => {
     try {
-      const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/validateInvite', {
+      const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/validatePersistentInviteLink', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ token })
+        body: JSON.stringify({ inviteCode: token })
       });
 
       if (!response.ok) {
@@ -416,13 +416,23 @@ const JoinInvite: React.FC = () => {
       
       console.log('📡 Request body being sent:', requestBody);
       
-      const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/redeemInvite', {
+      const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/redeemPersistentInviteLink', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${await auth.currentUser!.getIdToken()}`
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify({
+          inviteCode: token,
+          uid: uid,
+          userData: {
+            email: email,
+            displayName: displayName,
+            firstName: displayName.split(' ')[0] || '',
+            lastName: displayName.split(' ').slice(1).join(' ') || '',
+            phoneNumber: ''
+          }
+        })
       });
 
       console.log('📡 Response status:', response.status);

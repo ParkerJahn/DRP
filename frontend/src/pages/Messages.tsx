@@ -29,6 +29,12 @@ const Messages: React.FC = () => {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [isChatSettingsOpen, setIsChatSettingsOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Rate limiting state
+  const [lastMessageTime, setLastMessageTime] = useState<number>(0);
+  const [lastChatTime, setLastChatTime] = useState<number>(0);
+  const MESSAGE_RATE_LIMIT = 1000; // 1 second between messages
+  const CHAT_RATE_LIMIT = 5000; // 5 seconds between chat creation
 
   useEffect(() => {
     if (user) {
@@ -112,12 +118,29 @@ const Messages: React.FC = () => {
   const handleCreateChat = async () => {
     if (!user || !chatForm.title || chatForm.members.length === 0) return;
     
+    // Rate limiting check
+    const now = Date.now();
+    if (now - lastChatTime < CHAT_RATE_LIMIT) {
+      alert('Please wait before creating another chat.');
+      return;
+    }
+
+    // Validate chat title
+    const validation = validateTextContent(chatForm.title.trim(), 100);
+    if (!validation.isValid) {
+      alert(validation.error || 'Invalid chat title');
+      return;
+    }
+    
     try {
+      setLastChatTime(now);
+      // Sanitize the chat title before creating
+      const sanitizedTitle = sanitizeText(chatForm.title.trim());
       const chatData = {
         proId: user.proId || user.uid,
         createdBy: user.uid,
         members: [user.uid, ...chatForm.members], // Include creator
-        title: chatForm.title
+        title: sanitizedTitle
       };
       
       const result = await createChat(user.uid, chatData);
@@ -148,12 +171,29 @@ const Messages: React.FC = () => {
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !selectedChat || sendingMessage || !user) return;
 
+    // Rate limiting check
+    const now = Date.now();
+    if (now - lastMessageTime < MESSAGE_RATE_LIMIT) {
+      alert('Please wait before sending another message.');
+      return;
+    }
+
+    // Validate message length and content
+    const validation = validateTextContent(newMessage.trim(), 2000);
+    if (!validation.isValid) {
+      alert(validation.error || 'Invalid message content');
+      return;
+    }
+
     try {
       setSendingMessage(true);
+      setLastMessageTime(now);
+      // Sanitize the message before sending
+      const sanitizedMessage = sanitizeText(newMessage.trim());
       const messageData = {
         chatId: selectedChat.id,
         by: user!.uid,
-        text: newMessage.trim()
+        text: sanitizedMessage
       };
       
       const result = await sendMessage(user.uid, messageData);
@@ -163,7 +203,7 @@ const Messages: React.FC = () => {
           id: result.messageId || '',
           chatId: selectedChat.id,
           by: user!.uid,
-          text: newMessage.trim(),
+          text: sanitizedMessage,
           createdAt: Timestamp.now()
         };
         
@@ -475,13 +515,23 @@ const Messages: React.FC = () => {
 
               {/* Message Input */}
               <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+                {/* Character count */}
+                {newMessage.length > 1800 && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 text-right">
+                    {newMessage.length}/2000 characters
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={newMessage}
+                    maxLength={2000}
                     onChange={(e) => {
-                      const sanitized = sanitizeText(e.target.value);
-                      setNewMessage(sanitized);
+                      // Enforce length limit during typing
+                      const value = e.target.value;
+                      if (value.length <= 2000) {
+                        setNewMessage(value);
+                      }
                     }}
                     onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                     placeholder="Type your message..."
@@ -537,43 +587,117 @@ const Messages: React.FC = () => {
                 <input
                   type="text"
                   value={chatForm.title}
+                  maxLength={100}
                   onChange={(e) => {
-                    const sanitized = sanitizeText(e.target.value);
-                    setChatForm(prev => ({ ...prev, title: sanitized }));
+                    // Enforce length limit during typing
+                    const value = e.target.value;
+                    if (value.length <= 100) {
+                      setChatForm(prev => ({ ...prev, title: value }));
+                    }
                   }}
                   onBlur={(e) => {
                     const validation = validateTextContent(e.target.value, 100);
-                    if (!validation.isValid) {
-                      setChatForm(prev => ({ ...prev, title: validation.sanitized }));
-                    }
+                    setChatForm(prev => ({ ...prev, title: validation.sanitized }));
                   }}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   placeholder="e.g., Team Training, Staff Meeting"
                   required
                 />
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {chatForm.title.length}/100 characters
+                </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Add Members *
-                </label>
-                <select
-                  multiple
-                  value={chatForm.members}
-                  onChange={(e) => {
-                    const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
-                    setChatForm(prev => ({ ...prev, members: selectedOptions }));
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  required
-                >
-                  {teamMembers.map((member) => (
-                    <option key={member.uid} value={member.uid}>
-                      {member.displayName || `${member.firstName} ${member.lastName}`} ({member.role})
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple members</p>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Add Members * ({chatForm.members.length} selected)
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChatForm(prev => ({
+                          ...prev,
+                          members: teamMembers.map(member => member.uid)
+                        }));
+                      }}
+                      className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium"
+                    >
+                      Select All
+                    </button>
+                    <span className="text-xs text-gray-400">•</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChatForm(prev => ({
+                          ...prev,
+                          members: []
+                        }));
+                      }}
+                      className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 font-medium"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-48 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 p-2">
+                  {teamMembers.length === 0 ? (
+                    <p className="text-gray-500 dark:text-gray-400 text-sm text-center py-4">
+                      No team members available
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {teamMembers.map((member) => {
+                        const isSelected = chatForm.members.includes(member.uid);
+                        return (
+                          <label
+                            key={member.uid}
+                            className="flex items-center space-x-3 p-2 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 cursor-pointer transition-colors"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  // Add member
+                                  setChatForm(prev => ({
+                                    ...prev,
+                                    members: [...prev.members, member.uid]
+                                  }));
+                                } else {
+                                  // Remove member
+                                  setChatForm(prev => ({
+                                    ...prev,
+                                    members: prev.members.filter(uid => uid !== member.uid)
+                                  }));
+                                }
+                              }}
+                              className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 rounded"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                {member.displayName || `${member.firstName} ${member.lastName}`}
+                              </p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                {member.role}
+                                {member.email && ` • ${member.email}`}
+                              </p>
+                            </div>
+                            <div className={`w-2 h-2 rounded-full ${
+                              isSelected 
+                                ? 'bg-indigo-500' 
+                                : 'bg-gray-300 dark:bg-gray-600'
+                            }`} />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  📱 Tap to select/deselect members • {chatForm.members.length} of {teamMembers.length} selected
+                </p>
               </div>
 
               <div className="flex justify-end gap-2 pt-4">

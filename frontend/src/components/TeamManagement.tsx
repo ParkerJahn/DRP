@@ -45,6 +45,7 @@ function TeamManagement() {
   const [loading, setLoading] = useState(true);
   const [creatingInvite, setCreatingInvite] = useState(false);
   const [qrCodes, setQrCodes] = useState<InviteQRCode[]>([]);
+  const [currentInviteLink, setCurrentInviteLink] = useState<{url: string, role: 'STAFF' | 'ATHLETE', remaining: number} | null>(null);
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [teamName, setTeamName] = useState<string>('');
@@ -558,7 +559,7 @@ function TeamManagement() {
     }
   };
 
-  const createInvite = async (role: 'STAFF' | 'ATHLETE', email?: string) => {
+  const getPersistentInvites = async () => {
     try {
       setCreatingInvite(true);
       // Include Firebase ID token for auth
@@ -566,27 +567,24 @@ function TeamManagement() {
         throw new Error('User not authenticated');
       }
       const token = await firebaseUser.getIdToken();
-      const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/createInvite', {
+      const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/getPersistentInvites', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ role, email })
+        }
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Failed to create invite (HTTP ${response.status})`);
+        throw new Error(errorData.error || `Failed to get invite links (HTTP ${response.status})`);
       }
 
       const result = await response.json();
-      // Normalize URL to the current origin (production) if function returned localhost
-      const fixedUrl = normalizeInviteUrl(result.invite.inviteUrl);
-      return { ...result.invite, inviteUrl: fixedUrl } as typeof result.invite;
+      return result;
     } catch (error) {
-      console.error('Error creating invite:', error);
-      alert('Failed to create invite. Please sign in again and try once more.');
+      console.error('Error getting persistent invites:', error);
+      alert('Failed to get invite links. Please sign in again and try once more.');
       return null;
     } finally {
       setCreatingInvite(false);
@@ -595,10 +593,22 @@ function TeamManagement() {
 
   const handleCreateInvite = async (role: 'STAFF' | 'ATHLETE') => {
     try {
-      const invite = await createInvite(role, undefined);
-      if (invite) {
-        // Generate QR code for the normalized invite URL
-        const qrCodeDataUrl = await QRCode.toDataURL(invite.inviteUrl, {
+      const invites = await getPersistentInvites();
+      if (invites && invites.success) {
+        // Get the appropriate invite URL based on role from the correct response structure
+        const inviteUrl = role === 'STAFF' 
+          ? invites.invites.staff.inviteUrl 
+          : invites.invites.athlete.inviteUrl;
+        
+        // Safely handle URL normalization
+        const normalizedUrl = inviteUrl ? normalizeInviteUrl(inviteUrl) : null;
+        
+        if (!normalizedUrl) {
+          throw new Error('Invalid invite URL received from server');
+        }
+        
+        // Generate QR code for the invite URL
+        const qrCodeDataUrl = await QRCode.toDataURL(normalizedUrl, {
           errorCorrectionLevel: 'M',
           margin: 1,
           scale: 6,
@@ -607,17 +617,33 @@ function TeamManagement() {
 
         const newQRCode: InviteQRCode = {
           role,
-          url: invite.inviteUrl,
+          url: normalizedUrl,
           qrCodeDataUrl
         };
         setQrCodes(prev => [newQRCode, ...prev].slice(0, 6));
 
-        await copyToClipboard(invite.inviteUrl);
-        alert(`✅ ${role} invite created and copied to clipboard! QR code generated below.`);
+        await copyToClipboard(normalizedUrl);
+        
+        // Get remaining invite count for display
+        const inviteData = role === 'STAFF' ? invites.invites.staff : invites.invites.athlete;
+        const remaining = inviteData.remainingInvites;
+        
+        // Store the current invite link info for display
+        setCurrentInviteLink({
+          url: normalizedUrl,
+          role: role,
+          remaining: remaining
+        });
+        
+        // Show success notification
+        const successMessage = `✅ ${role} invite link copied to clipboard and displayed below!\n\nThis is a permanent link that can be used multiple times.\nRemaining ${role.toLowerCase()} invites: ${remaining}`;
+        
+        // You can replace this alert with a toast notification if you have one
+        alert(successMessage);
       }
     } catch (error) {
-      console.error('Error creating invite:', error);
-      alert(`❌ Error creating invite: ${(error as Error).message}`);
+      console.error('Error getting invite link:', error);
+      alert(`❌ Error getting invite link: ${(error as Error).message}`);
     }
   };
 
@@ -657,6 +683,42 @@ function TeamManagement() {
   const cancelEditingTeamName = () => {
     setEditingTeamName(teamName);
     setIsEditingTeamName(false);
+  };
+
+  // Fix PRO user proId issues
+  const fixProUserProId = async () => {
+    if (!firebaseUser || role !== 'PRO') return;
+    
+    try {
+      setLoading(true);
+      const token = await firebaseUser.getIdToken();
+      
+      const response = await fetch('https://us-central1-drp-workshop.cloudfunctions.net/fixExistingProUser', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to fix PRO user (HTTP ${response.status})`);
+      }
+
+      const result = await response.json();
+      console.log('PRO user fixed:', result);
+      
+      // Reload team data to see the changes
+      await loadTeamData();
+      
+      alert('✅ PRO user account fixed! Your team members should now appear.');
+    } catch (error) {
+      console.error('Error fixing PRO user:', error);
+      alert(`❌ Error fixing PRO user: ${(error as Error).message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Only PRO users can access team management
@@ -1118,6 +1180,42 @@ function TeamManagement() {
         </div>
       </div>
 
+      {/* PRO User Fix Section - Show only if no team members are showing */}
+      {teamMembers.length === 0 && (
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+          <div className="flex items-start space-x-3">
+            <div className="flex-shrink-0">
+              <span className="text-2xl">⚠️</span>
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-yellow-800 dark:text-yellow-200 mb-2">
+                Team Members Not Showing?
+              </h3>
+              <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-3">
+                If you're not seeing your team members, there might be an issue with your account setup. 
+                Click the button below to fix this automatically.
+              </p>
+              <button
+                onClick={fixProUserProId}
+                disabled={loading}
+                className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white font-medium rounded-lg transition-colors duration-200 disabled:opacity-50 flex items-center space-x-2"
+              >
+                {loading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Fixing...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>🔧</span>
+                    <span>Fix My Account</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Invite Links Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1152,6 +1250,40 @@ function TeamManagement() {
             {isLimitReached('STAFF') && (
               <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-2 rounded-md text-center">
                 ⚠️ Staff limit reached
+              </div>
+            )}
+            
+            {/* Staff Invite Link Display */}
+            {currentInviteLink && currentInviteLink.role === 'STAFF' && (
+              <div className="mt-4 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center space-x-2">
+                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-200">
+                      STAFF
+                    </span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">
+                      Remaining: {currentInviteLink.remaining}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => copyToClipboard(currentInviteLink.url)}
+                    className="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition-colors"
+                  >
+                    📋 Copy Link
+                  </button>
+                </div>
+                
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  🔗 Invite Link (manually copy here):
+                </label>
+                <input
+                  type="text"
+                  readOnly
+                  value={currentInviteLink.url}
+                  onClick={(e) => e.currentTarget.select()}
+                  className="w-full text-xs px-3 py-2 border border-green-300 dark:border-green-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
+                  title="Click to select the full invite link"
+                />
               </div>
             )}
           </div>
@@ -1190,8 +1322,43 @@ function TeamManagement() {
                 ⚠️ Athlete limit reached
               </div>
             )}
+            
+            {/* Athlete Invite Link Display */}
+            {currentInviteLink && currentInviteLink.role === 'ATHLETE' && (
+              <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center space-x-2">
+                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200">
+                      ATHLETE
+                    </span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">
+                      Remaining: {currentInviteLink.remaining}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => copyToClipboard(currentInviteLink.url)}
+                    className="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 transition-colors"
+                  >
+                    📋 Copy Link
+                  </button>
+                </div>
+                
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  🔗 Invite Link (manually copy here):
+                </label>
+                <input
+                  type="text"
+                  readOnly
+                  value={currentInviteLink.url}
+                  onClick={(e) => e.currentTarget.select()}
+                  className="w-full text-xs px-3 py-2 border border-blue-300 dark:border-blue-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
+                  title="Click to select the full invite link"
+                />
+              </div>
+            )}
           </div>
         </div>
+
 
         {/* QR Codes Display */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
@@ -1203,7 +1370,7 @@ function TeamManagement() {
             <div className="text-center text-gray-500 dark:text-gray-400 py-8">
               <div className="text-4xl mb-2">📱</div>
               <p>Generate an invite to see the QR code here!</p>
-              <p className="text-sm mt-1">Perfect for sharing in person or on social media</p>
+              <p className="text-sm mt-1">Perfect for sharing in person</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -1222,14 +1389,9 @@ function TeamManagement() {
                         {new Date().toLocaleDateString()}
                       </span>
                     </div>
-                    <button
-                      onClick={() => copyToClipboard(qrCode.url)}
-                      className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300"
-                    >
-                      Copy Link
-                    </button>
-                  </div>
-                  <div className="flex justify-center">
+                                      </div>
+                    
+                    <div className="flex justify-center">
                     <img 
                       src={qrCode.qrCodeDataUrl} 
                       alt={`QR Code for ${qrCode.role} invite`}
@@ -1237,7 +1399,7 @@ function TeamManagement() {
                     />
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-2">
-                    Scan with any QR code app
+                    📱 Scan with any QR code app
                   </p>
                 </div>
               ))}

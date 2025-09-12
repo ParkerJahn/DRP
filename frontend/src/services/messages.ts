@@ -18,11 +18,11 @@ import {
 import { db } from '../config/firebase';
 import type { Chat, Message } from '../types';
 
-// Chat Management - Now using user subcollections
+// Chat Management - Using global chats collection
 export const createChat = async (userId: string, chatData: Omit<Chat, 'createdAt' | 'updatedAt'>) => {
   try {
-    const userChatsRef = collection(db, 'users', userId, 'chats');
-    const chatRef = doc(userChatsRef);
+    const chatsRef = collection(db, 'chats');
+    const chatRef = doc(chatsRef);
     const newChat = {
       ...chatData,
       createdAt: serverTimestamp(),
@@ -39,11 +39,17 @@ export const createChat = async (userId: string, chatData: Omit<Chat, 'createdAt
 
 export const getChat = async (userId: string, chatId: string) => {
   try {
-    const chatRef = doc(db, 'users', userId, 'chats', chatId);
+    const chatRef = doc(db, 'chats', chatId);
     const chatSnap = await getDoc(chatRef);
     
     if (chatSnap.exists()) {
-      return { success: true, chat: { id: chatSnap.id, ...chatSnap.data() } };
+      const chatData = chatSnap.data();
+      // Check if user is a member of this chat
+      if (chatData?.members?.includes(userId)) {
+        return { success: true, chat: { id: chatSnap.id, ...chatData } };
+      } else {
+        return { success: false, error: 'Access denied' };
+      }
     } else {
       return { success: false, error: 'Chat not found' };
     }
@@ -55,7 +61,19 @@ export const getChat = async (userId: string, chatId: string) => {
 
 export const updateChat = async (userId: string, chatId: string, updates: Partial<Chat>) => {
   try {
-    const chatRef = doc(db, 'users', userId, 'chats', chatId);
+    const chatRef = doc(db, 'chats', chatId);
+    const chatSnap = await getDoc(chatRef);
+    
+    if (!chatSnap.exists()) {
+      return { success: false, error: 'Chat not found' };
+    }
+    
+    const chatData = chatSnap.data();
+    // Check if user is a member of this chat
+    if (!chatData?.members?.includes(userId)) {
+      return { success: false, error: 'Access denied' };
+    }
+    
     await updateDoc(chatRef, {
       ...updates,
       updatedAt: serverTimestamp(),
@@ -69,7 +87,19 @@ export const updateChat = async (userId: string, chatId: string, updates: Partia
 
 export const deleteChat = async (userId: string, chatId: string) => {
   try {
-    const chatRef = doc(db, 'users', userId, 'chats', chatId);
+    const chatRef = doc(db, 'chats', chatId);
+    const chatSnap = await getDoc(chatRef);
+    
+    if (!chatSnap.exists()) {
+      return { success: false, error: 'Chat not found' };
+    }
+    
+    const chatData = chatSnap.data();
+    // Only the creator can delete the chat
+    if (chatData?.createdBy !== userId) {
+      return { success: false, error: 'Only the chat creator can delete this chat' };
+    }
+    
     await deleteDoc(chatRef);
     return { success: true };
   } catch (error) {
@@ -81,8 +111,9 @@ export const deleteChat = async (userId: string, chatId: string) => {
 // Get chats for a specific user
 export const getUserChats = async (userId: string) => {
   try {
-    const userChatsRef = collection(db, 'users', userId, 'chats');
-    const querySnapshot = await getDocs(userChatsRef);
+    const chatsRef = collection(db, 'chats');
+    const userChatsQuery = query(chatsRef, where('members', 'array-contains', userId));
+    const querySnapshot = await getDocs(userChatsQuery);
     
     const chats: Array<Chat & { id: string }> = [];
     querySnapshot.forEach((doc) => {
@@ -103,67 +134,26 @@ export const getUserChats = async (userId: string) => {
   }
 };
 
-// Get chats by PRO - redesigned for subcollection architecture
+// Get chats by PRO - using global chats collection
 export const getChatsByPro = async (proId: string) => {
   try {
-    // First, get all users who belong to this PRO (including the PRO themselves)
-    const usersRef = collection(db, 'users');
-    const teamQuery = query(usersRef, where('proId', '==', proId));
-    const teamSnapshot = await getDocs(teamQuery);
+    const chatsRef = collection(db, 'chats');
+    const proChatsQuery = query(chatsRef, where('proId', '==', proId));
+    const querySnapshot = await getDocs(proChatsQuery);
     
-    // Also explicitly include the PRO user themselves in case proId doesn't match their own uid
-    const proUserRef = doc(db, 'users', proId);
-    const proUserSnap = await getDoc(proUserRef);
-    
-    const userIds = new Set<string>();
-    
-    // Add team members
-    teamSnapshot.forEach((doc) => {
-      userIds.add(doc.id);
+    const chats: Array<Chat & { id: string }> = [];
+    querySnapshot.forEach((doc) => {
+      chats.push({ id: doc.id, ...doc.data() } as Chat & { id: string });
     });
     
-    // Add PRO user themselves if they exist and have PRO role
-    if (proUserSnap.exists()) {
-      const proUserData = proUserSnap.data();
-      if (proUserData?.role === 'PRO') {
-        userIds.add(proId);
-      }
-    }
-    
-    if (userIds.size === 0) {
-      return { success: true, chats: [] };
-    }
-    
-    // Get chats from each team member's subcollection
-    const allChats: Array<Chat & { id: string; userId: string }> = [];
-    
-    for (const userId of userIds) {
-      try {
-        const userChatsRef = collection(db, 'users', userId, 'chats');
-        const chatsQuery = query(userChatsRef, orderBy('lastMessageAt', 'desc'));
-        const chatsSnapshot = await getDocs(chatsQuery);
-        
-        chatsSnapshot.forEach((doc) => {
-          allChats.push({ 
-            id: doc.id, 
-            userId: userId,
-            ...doc.data() 
-          } as Chat & { id: string; userId: string });
-        });
-      } catch (error) {
-        console.warn(`Error fetching chats for user ${userId}:`, error);
-        // Continue with other users even if one fails
-      }
-    }
-    
-    // Sort all chats by last message time (newest first)
-    allChats.sort((a, b) => {
-      const aTime = a.lastMessage?.at?.toDate?.()?.getTime() || 0;
-      const bTime = b.lastMessage?.at?.toDate?.()?.getTime() || 0;
+    // Sort by last message time (newest first)
+    chats.sort((a, b) => {
+      const aTime = a.lastMessage?.at?.toDate?.()?.getTime() || a.updatedAt?.toDate?.()?.getTime() || 0;
+      const bTime = b.lastMessage?.at?.toDate?.()?.getTime() || b.updatedAt?.toDate?.()?.getTime() || 0;
       return bTime - aTime;
     });
     
-    return { success: true, chats: allChats };
+    return { success: true, chats };
   } catch (error) {
     console.error('Error fetching chats by PRO:', error);
     return { success: false, error };
@@ -181,17 +171,30 @@ export const getChatsByParticipant = async (participantUid: string) => {
   }
 };
 
-// Message Management - Now using user subcollections
+// Message Management - Using messages subcollection under chats
 export const sendMessage = async (userId: string, messageData: Omit<Message, 'createdAt'>) => {
   try {
-    const userChatMessagesRef = collection(db, 'users', userId, 'chats', messageData.chatId, 'messages');
-    const messageRef = await addDoc(userChatMessagesRef, {
+    // First verify user has access to this chat
+    const chatRef = doc(db, 'chats', messageData.chatId);
+    const chatSnap = await getDoc(chatRef);
+    
+    if (!chatSnap.exists()) {
+      return { success: false, error: 'Chat not found' };
+    }
+    
+    const chatData = chatSnap.data();
+    if (!chatData?.members?.includes(userId)) {
+      return { success: false, error: 'Access denied' };
+    }
+    
+    // Add message to chat's messages subcollection
+    const messagesRef = collection(db, 'chats', messageData.chatId, 'messages');
+    const messageRef = await addDoc(messagesRef, {
       ...messageData,
       createdAt: serverTimestamp(),
     });
     
     // Update chat's lastMessage
-    const chatRef = doc(db, 'users', userId, 'chats', messageData.chatId);
     await updateDoc(chatRef, {
       lastMessage: {
         text: messageData.text,
@@ -210,7 +213,20 @@ export const sendMessage = async (userId: string, messageData: Omit<Message, 'cr
 
 export const getMessages = async (userId: string, chatId: string, limitCount = 50, lastDoc?: QueryDocumentSnapshot) => {
   try {
-    const messagesRef = collection(db, 'users', userId, 'chats', chatId, 'messages');
+    // First verify user has access to this chat
+    const chatRef = doc(db, 'chats', chatId);
+    const chatSnap = await getDoc(chatRef);
+    
+    if (!chatSnap.exists()) {
+      return { success: false, error: 'Chat not found' };
+    }
+    
+    const chatData = chatSnap.data();
+    if (!chatData?.members?.includes(userId)) {
+      return { success: false, error: 'Access denied' };
+    }
+    
+    const messagesRef = collection(db, 'chats', chatId, 'messages');
     let q = query(
       messagesRef,
       orderBy('createdAt', 'desc'),
@@ -227,6 +243,9 @@ export const getMessages = async (userId: string, chatId: string, limitCount = 5
     querySnapshot.forEach((doc) => {
       messages.push({ id: doc.id, ...doc.data() } as Message & { id: string });
     });
+    
+    // Return in chronological order (oldest first) for display
+    messages.reverse();
     
     return { 
       success: true, 

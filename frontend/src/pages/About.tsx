@@ -54,10 +54,9 @@ const About: React.FC = () => {
             </div>
           </div>
           
-          {/* Right: Get Started Button */}
-          <div className="flex justify-center sm:justify-end w-full sm:w-auto space-x-3">
-            <a href={ROUTES.AUTH} className="px-6 py-3 border border-indigo-400 text-indigo-300 rounded-lg hover:bg-indigo-400 hover:text-white transition-all duration-200 font-medium text-sm w-full sm:w-auto text-center">Sign In</a>
-            <a href={ROUTES.GET_STARTED} className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-200 font-medium text-sm w-full sm:w-auto text-center">Get Started</a>
+          {/* Right: Sign In Button */}
+          <div className="flex justify-center sm:justify-end w-full sm:w-auto">
+            <a href={ROUTES.AUTH} className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-200 font-medium text-sm w-full sm:w-auto text-center">Sign In</a>
           </div>
         </nav>
 
@@ -179,10 +178,10 @@ const About: React.FC = () => {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 justify-center">
               <a
-                href={ROUTES.GET_STARTED}
+                href={ROUTES.AUTH}
                 className="inline-block bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg font-semibold text-base sm:text-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl w-full sm:w-auto max-w-xs mx-auto text-center"
               >
-                Get Started Today
+                Sign In
               </a>
               <a
                 href={ROUTES.FEATURES}

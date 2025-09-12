@@ -34,6 +34,11 @@ service cloud.firestore {
       return request.auth.token.proId;
     }
 
+    // Users collection - allow querying for team members
+    match /users {
+      allow list: if isSignedIn() && isTeamMember();
+    }
+
     // Users collection - all authenticated users can read their own data
     match /users/{userId} {
       allow read: if isSignedIn() && (
@@ -44,29 +49,7 @@ service cloud.firestore {
       );
       allow write: if isSignedIn() && uid() == userId; // Only self-write
       
-      // User's chats subcollection
-      match /chats/{chatId} {
-        allow read, write: if isSignedIn() && (
-          uid() == userId || // User owns their chats
-          (isPro() && proId() == userId) || // PRO can access team member chats
-          (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can access chats
-        );
-        
-        // Messages within user's chats
-        match /messages/{messageId} {
-          allow read: if isSignedIn() && (
-            uid() == userId || // User owns their chat messages
-            (isPro() && proId() == userId) || // PRO can read team messages
-            (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can read messages
-          );
-          allow create: if isSignedIn() && (
-            uid() == userId || // User can create messages in their chats
-            (isPro() && proId() == userId) || // PRO can send messages
-            (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can send messages
-          );
-          allow update, delete: if false; // Messages are immutable
-        }
-      }
+
       
       // User's events subcollection
       match /events/{eventId} {
@@ -194,6 +177,32 @@ service cloud.firestore {
           uid() == userId || // User can manage their templates
           (isPro() && proId() == userId) // PRO can manage team templates
         );
+      }
+    }
+
+    // Global chats collection - accessible by team members
+    match /chats/{chatId} {
+      // Allow querying chats by team members (for list operations)
+      allow list: if isSignedIn() && isTeamMember();
+      // Allow reading individual chats only if user is a member
+      allow get: if isSignedIn() && uid() in resource.data.members;
+      // Allow creating chats for team members
+      allow create: if isSignedIn() && isTeamMember() && 
+        uid() in request.resource.data.members &&
+        request.resource.data.createdBy == uid();
+      // Allow updating chats only by members (can't change creator)
+      allow update: if isSignedIn() && uid() in resource.data.members &&
+        request.resource.data.createdBy == resource.data.createdBy;
+      // Allow deleting chats only by creator
+      allow delete: if isSignedIn() && resource.data.createdBy == uid();
+      
+      // Messages subcollection within chats
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
+        allow create: if isSignedIn() && 
+          uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.members &&
+          request.resource.data.by == uid();
+        allow update, delete: if false; // Messages are immutable
       }
     }
 

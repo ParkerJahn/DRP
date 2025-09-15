@@ -1,8 +1,9 @@
 {
   "compileOnSave": true,
   "include": [
-    "src"
-, "../frontend/index.ts"  ],
+    "src",
+    "../frontend/index.ts"
+  ],
   "compilerOptions": {
     "module": "NodeNext",
     "noImplicitReturns": true,

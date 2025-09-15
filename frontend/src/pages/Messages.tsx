@@ -8,10 +8,11 @@ import {
   deleteChat,
   updateChat
 } from '../services/messages';
-import { getUsersByRole } from '../services/firebase';
+import { getTeamMembers } from '../services/firebase';
 import { validateTextContent, sanitizeText } from '../utils/validation';
 import type { Chat, Message, User } from '../types';
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp, doc, getDoc } from 'firebase/firestore';
+import { db } from '../config/firebase';
 
 const Messages: React.FC = () => {
   const { user } = useAuth();
@@ -82,19 +83,50 @@ const Messages: React.FC = () => {
   };
 
   const loadTeamMembers = async () => {
-    if (!user || (user.role !== 'PRO' && user.role !== 'STAFF')) return;
+    if (!user) return;
     
     try {
-      // Get both staff and athletes for the team
-      const staffResult = await getUsersByRole(user.proId || user.uid, 'STAFF');
-      const athleteResult = await getUsersByRole(user.proId || user.uid, 'ATHLETE');
+      // Get the proId to query for team members
+      const teamProId = user.proId || user.uid;
       
-      const allMembers = [
-        ...(staffResult.success ? staffResult.users || [] : []),
-        ...(athleteResult.success ? athleteResult.users || [] : [])
-      ];
-      
-      setTeamMembers(allMembers);
+      // Get all team members using the existing getTeamMembers function
+      const result = await getTeamMembers(teamProId);
+      if (result.success) {
+        const allMembers = result.members || [];
+        
+        // Check if PRO user is already included in the team members
+        const proUserExists = allMembers.some(member => member.uid === teamProId && member.role === 'PRO');
+        
+        if (!proUserExists) {
+          // Explicitly fetch and add the PRO user
+          try {
+            const proUserDoc = await getDoc(doc(db, 'users', teamProId));
+            if (proUserDoc.exists()) {
+              const proUserData = proUserDoc.data();
+              if (proUserData?.role === 'PRO') {
+                allMembers.push({
+                  uid: proUserDoc.id,
+                  email: proUserData.email || '',
+                  displayName: proUserData.displayName || `${proUserData.firstName || ''} ${proUserData.lastName || ''}`.trim() || 'PRO User',
+                  firstName: proUserData.firstName || '',
+                  lastName: proUserData.lastName || '',
+                  phoneNumber: proUserData.phoneNumber || '',
+                  photoURL: proUserData.photoURL,
+                  role: 'PRO',
+                  proId: proUserData.proId,
+                  createdAt: proUserData.createdAt,
+                  updatedAt: proUserData.updatedAt,
+                  proStatus: proUserData.proStatus
+                } as User);
+              }
+            }
+          } catch (error) {
+            console.warn('Error fetching PRO user data:', error);
+          }
+        }
+        
+        setTeamMembers(allMembers);
+      }
     } catch (error) {
       console.error('Error loading team members:', error);
     }

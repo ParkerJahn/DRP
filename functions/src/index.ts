@@ -40,13 +40,25 @@ setGlobalOptions({maxInstances: 10});
  * @return {Promise<string>} User ID from verified token
  */
 async function verifyFirebaseToken(authHeader: string): Promise<string> {
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  if (!authHeader) {
+    logger.error("Authentication error: No authorization header provided");
+    throw new Error("No valid authorization token");
+  }
+  
+  if (!authHeader.startsWith("Bearer ")) {
+    logger.error("Authentication error: Invalid authorization header format:", authHeader.substring(0, 20) + "...");
     throw new Error("No valid authorization token");
   }
 
   const token = authHeader.split("Bearer ")[1];
+  if (!token) {
+    logger.error("Authentication error: No token found in authorization header");
+    throw new Error("No valid authorization token");
+  }
+
   try {
     const decodedToken = await getAuth().verifyIdToken(token);
+    logger.info("Authentication successful for user:", decodedToken.uid);
     return decodedToken.uid;
   } catch (error) {
     logger.error("Failed to verify Firebase token:", error);
@@ -926,6 +938,15 @@ export const fixExistingProUser = onRequest({
     return;
   }
 
+  // Only allow POST requests
+  if (request.method !== "POST") {
+    logger.error(`fixExistingProUser: Invalid method ${request.method} from ${request.headers['user-agent']}`);
+    response.status(405).json({
+      error: "Method not allowed. This endpoint only accepts POST requests."
+    });
+    return;
+  }
+
   try {
     // Verify user is authenticated and is PRO
     const userId = await verifyFirebaseToken(
@@ -1536,6 +1557,15 @@ export const getPersistentInvites = onRequest({
     return;
   }
 
+  // Only allow POST requests
+  if (request.method !== "POST") {
+    logger.error(`getPersistentInvites: Invalid method ${request.method} from ${request.headers['user-agent']}`);
+    response.status(405).json({
+      error: "Method not allowed. This endpoint only accepts POST requests."
+    });
+    return;
+  }
+
   try {
     // Verify user is authenticated and is PRO
     const authHeader = request.headers.authorization || "";
@@ -1584,34 +1614,28 @@ export const getPersistentInvites = onRequest({
         athlete: {
           id: athleteInvite.id,
           role: athleteInvite.role,
-          inviteUrl: athleteInviteUrl,
           inviteCode: athleteInvite.inviteCode,
+          inviteUrl: athleteInviteUrl,
+          active: athleteInvite.active,
           maxRedemptions: athleteInvite.maxRedemptions,
           redeemedCount: athleteInvite.redeemedCount,
-          remainingInvites:
-            athleteInvite.maxRedemptions - athleteInvite.redeemedCount,
-          active: athleteInvite.active,
           createdAt: athleteInvite.createdAt,
-          updatedAt: athleteInvite.updatedAt,
         },
         staff: {
           id: staffInvite.id,
           role: staffInvite.role,
-          inviteUrl: staffInviteUrl,
           inviteCode: staffInvite.inviteCode,
+          inviteUrl: staffInviteUrl,
+          active: staffInvite.active,
           maxRedemptions: staffInvite.maxRedemptions,
           redeemedCount: staffInvite.redeemedCount,
-          remainingInvites:
-            staffInvite.maxRedemptions - staffInvite.redeemedCount,
-          active: staffInvite.active,
           createdAt: staffInvite.createdAt,
-          updatedAt: staffInvite.updatedAt,
         },
       },
     });
   } catch (error) {
     logger.error("Error getting persistent invites:", error);
-    response.status(500).json({error: "Failed to get invite links"});
+    response.status(500).json({error: "Failed to get persistent invites"});
   }
 });
 
@@ -1926,6 +1950,15 @@ export const validatePersistentInviteLink = onRequest({
     return;
   }
 
+  // Only allow POST requests
+  if (request.method !== "POST") {
+    logger.error(`validatePersistentInviteLink: Invalid method ${request.method} from ${request.headers['user-agent']}`);
+    response.status(405).json({
+      error: "Method not allowed. This endpoint only accepts POST requests."
+    });
+    return;
+  }
+
   try {
     const {inviteCode} = request.body;
 
@@ -1977,6 +2010,15 @@ export const redeemPersistentInviteLink = onRequest({
 
   if (request.method === "OPTIONS") {
     response.status(204).send("");
+    return;
+  }
+
+  // Only allow POST requests
+  if (request.method !== "POST") {
+    logger.error(`redeemPersistentInviteLink: Invalid method ${request.method} from ${request.headers['user-agent']}`);
+    response.status(405).json({
+      error: "Method not allowed. This endpoint only accepts POST requests."
+    });
     return;
   }
 

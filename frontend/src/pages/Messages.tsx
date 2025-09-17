@@ -10,6 +10,7 @@ import {
 } from '../services/messages';
 import { getTeamMembers } from '../services/firebase';
 import { validateTextContent, sanitizeText } from '../utils/validation';
+import { secureInput, inputPresets } from '../utils/inputSecurity';
 import type { Chat, Message, User } from '../types';
 import { Timestamp, doc, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -557,12 +558,13 @@ const Messages: React.FC = () => {
                   <input
                     type="text"
                     value={newMessage}
-                    maxLength={2000}
+                    maxLength={inputPresets.message.maxLength}
                     onChange={(e) => {
-                      // Enforce length limit during typing
-                      const value = e.target.value;
-                      if (value.length <= 2000) {
-                        setNewMessage(value);
+                      const result = secureInput(e.target.value, `message-${user?.uid}`, inputPresets.message);
+                      if (result.isValid) {
+                        setNewMessage(result.sanitizedValue);
+                      } else if (result.rateLimited) {
+                        alert(result.error);
                       }
                     }}
                     onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}

@@ -18,6 +18,7 @@ import { Timestamp } from 'firebase/firestore';
 import { getDoc, doc } from 'firebase/firestore';
 import { getUsersByRole } from '../services/firebase';
 import { db } from '../config/firebase';
+import { secureInput, inputPresets } from '../utils/inputSecurity';
 
 const Programs: React.FC = () => {
   const { user } = useAuth();
@@ -89,7 +90,6 @@ const Programs: React.FC = () => {
         ...program,
         athleteUids: program.athleteUids || (program.athleteUid ? [program.athleteUid] : [])
       }));
-      
       setPrograms(normalizedPrograms);
     } catch (error) {
       console.error('Error loading programs:', error);
@@ -100,14 +100,20 @@ const Programs: React.FC = () => {
 
   // Load exercise categories from Firestore on mount
   const loadExerciseCategories = async () => {
-    if (!user || (user.role !== 'PRO' && user.role !== 'STAFF')) return;
+    if (!user) return;
+    
     try {
-      const result = await getExerciseCategories(user.proId || user.uid);
+      // For athletes, load categories from their PRO user's collection
+      // For PRO/STAFF, load from their own collection
+      const categoryProId = user.role === 'ATHLETE' ? (user.proId || user.uid) : (user.proId || user.uid);
+      
+      const result = await getExerciseCategories(categoryProId);
+      
       if (result.success) {
         setExerciseCategories(result.categories || []);
         
-        // If no categories exist, create some sample ones
-        if (result.categories && result.categories.length === 0) {
+        // If no categories exist and user can create them, create some sample ones
+        if (result.categories && result.categories.length === 0 && (user.role === 'PRO' || user.role === 'STAFF')) {
           await createSampleCategories();
         }
       } else {
@@ -270,7 +276,7 @@ const Programs: React.FC = () => {
         setExerciseCategories(reloadResult.categories || []);
       }
       
-      console.log('Sample exercise categories created successfully!');
+
     } catch (error) {
       console.error('Error creating sample categories:', error);
     }
@@ -456,6 +462,13 @@ const Programs: React.FC = () => {
     }
   }, [user]);
 
+  // Initialize rowSelections when currentPhase changes or selectedProgram changes
+  useEffect(() => {
+    if (selectedProgram && exerciseCategories.length > 0) {
+      initializeRowSelectionsFromProgram(selectedProgram);
+    }
+  }, [currentPhase, selectedProgram, exerciseCategories]);
+
   // Enhanced filtering and sorting functions
   const getFilteredAndSortedPrograms = () => {
     const filtered = programs.filter(program => {
@@ -556,19 +569,43 @@ const Programs: React.FC = () => {
 
   const createMockPhases = (): [Phase, Phase, Phase, Phase] => {
     const phaseNames = ['Phase 1', 'Phase 2', 'Phase 3', 'Phase 4'];
-    const phases = phaseNames.map((name) => ({
+    
+    // Define realistic exercises with categories
+    const exerciseTemplates = [
+      { name: 'Barbell Back Squat', category: 'Legs', sets: 1, reps: 8 },
+      { name: 'Bench Press', category: 'Chest', sets: 1, reps: 10 },
+      { name: 'Deadlift', category: 'Back', sets: 1, reps: 6 },
+      { name: 'Overhead Press', category: 'Shoulders', sets: 1, reps: 8 },
+      { name: 'Bent-Over Row', category: 'Back', sets: 1, reps: 10 },
+      { name: 'Pull-ups', category: 'Back', sets: 1, reps: 8 }
+    ];
+
+    const phases = phaseNames.map((name, phaseIndex) => ({
       name,
       blocks: Array.from({ length: 8 }, (_, blockIndex) => ({
         muscleGroup: `Block ${blockIndex + 1}`,
-        exercises: Array.from({ length: 6 }, (_, exerciseIndex) => ({
-          name: `Exercise ${exerciseIndex + 1}`,
-          sets: 3,
-          reps: 10,
-          load: '0lbs',
-          tempo: '2-0-2',
-          restSec: 60,
-          completed: false
-        })),
+        exercises: Array.from({ length: 6 }, (_, exerciseIndex) => {
+          const template = exerciseTemplates[exerciseIndex] || exerciseTemplates[0];
+          return {
+            name: template.name,
+            category: template.category,
+            exerciseName: template.name,
+            sets: template.sets + phaseIndex, // Increase sets as phases progress
+            reps: Math.max(4, template.reps - phaseIndex), // Decrease reps as phases progress
+            load: '0lbs',
+            tempo: '2-0-2',
+            restSec: 60 + (phaseIndex * 30), // Increase rest as intensity goes up
+            completed: false,
+            // Initialize per-set data for tracking
+            setDetails: Array.from({ length: template.sets + phaseIndex }, () => ({
+              weight: '0lbs',
+              reps: Math.max(4, template.reps - phaseIndex),
+              restSec: 60 + (phaseIndex * 30),
+              completed: false,
+              notes: ''
+            }))
+          };
+        }),
         notes: `Notes for ${name} Block ${blockIndex + 1}`
       }))
     }));
@@ -603,7 +640,8 @@ const Programs: React.FC = () => {
         });
         if (result.success) {
           if (result.category) {
-            const { id: _ignore, ...categoryWithoutId } = result.category as ExerciseCategory;
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { id, ...categoryWithoutId } = result.category as ExerciseCategory;
             setExerciseCategories(prev => [
               ...prev,
               { id: result.categoryId as string, ...categoryWithoutId }
@@ -649,6 +687,11 @@ const Programs: React.FC = () => {
 
   const handleDeleteExercise = async (blockIndex: number, exerciseIndex: number) => {
     if (!selectedProgram || !user) return;
+    
+    // Athletes cannot delete exercises
+    if (user.role === 'ATHLETE') {
+      return;
+    }
     
     const confirmed = window.confirm('Are you sure you want to delete this exercise? This cannot be undone.');
     if (!confirmed) return;
@@ -932,7 +975,13 @@ const Programs: React.FC = () => {
                   type="text"
                   placeholder="Search by exercise name or category..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    const result = secureInput(e.target.value, `search-${user?.uid}`, inputPresets.searchQuery);
+                    if (result.isValid) {
+                      setSearchQuery(result.sanitizedValue);
+                    }
+                  }}
+                  maxLength={inputPresets.searchQuery.maxLength}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
@@ -1172,11 +1221,17 @@ const Programs: React.FC = () => {
                       <input
                         type="text"
                         placeholder="New exercise name"
+                        maxLength={inputPresets.exerciseName.maxLength}
                         className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-600 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         onKeyPress={(e) => {
                           if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                            handleAddExercise(category.id, e.currentTarget.value);
-                            e.currentTarget.value = '';
+                            const result = secureInput(e.currentTarget.value, `exercise-${user?.uid}`, inputPresets.exerciseName);
+                            if (result.isValid) {
+                              handleAddExercise(category.id, result.sanitizedValue);
+                              e.currentTarget.value = '';
+                            } else {
+                              alert(result.error || 'Invalid exercise name');
+                            }
                           }
                         }}
                       />
@@ -1184,8 +1239,13 @@ const Programs: React.FC = () => {
                         onClick={(e) => {
                           const input = e.currentTarget.previousElementSibling as HTMLInputElement;
                           if (input && input.value.trim()) {
-                            handleAddExercise(category.id, input.value);
-                            input.value = '';
+                            const result = secureInput(input.value, `exercise-${user?.uid}`, inputPresets.exerciseName);
+                            if (result.isValid) {
+                              handleAddExercise(category.id, result.sanitizedValue);
+                              input.value = '';
+                            } else {
+                              alert(result.error || 'Invalid exercise name');
+                            }
                           }
                         }}
                         className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
@@ -1302,7 +1362,7 @@ const Programs: React.FC = () => {
                 {selectedProgram.title}
               </h2>
               <p className="text-gray-600 dark:text-gray-400 text-lg">
-                Phase {currentPhase} of 4 - {currentPhaseData.name}
+                Phase {currentPhase} of 4
               </p>
               <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500 dark:text-gray-400">
                 <span>Status: <span className="font-medium text-blue-600 dark:text-blue-400">{selectedProgram.status}</span></span>
@@ -1363,10 +1423,17 @@ const Programs: React.FC = () => {
               {canCreateProgram && (
                 <>
                   <button 
-                    onClick={() => handleCompletePhase(currentPhase)}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                    onClick={() => handleTogglePhaseCompletion(currentPhase)}
+                    className={`px-4 py-2 text-white rounded-lg transition-colors ${
+                      (selectedProgram.phases[currentPhase - 1] as Phase & { status?: string }).status === 'completed'
+                        ? 'bg-orange-600 hover:bg-orange-700'
+                        : 'bg-green-600 hover:bg-green-700'
+                    }`}
                   >
-                    ✅ Complete Phase {currentPhase}
+                    {(selectedProgram.phases[currentPhase - 1] as Phase & { status?: string }).status === 'completed'
+                      ? `🔄 Mark Phase ${currentPhase} Incomplete`
+                      : `✅ Complete Phase ${currentPhase}`
+                    }
                   </button>
                   <button
                     onClick={() => handleSaveProgram()}
@@ -1405,9 +1472,7 @@ const Programs: React.FC = () => {
                   <div className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
                     Phase {phase}
                   </div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                    {phaseData.name}
-                  </div>
+
                   <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mb-2">
                     <div
                       className={`h-2 rounded-full transition-all duration-300 ${
@@ -1438,12 +1503,14 @@ const Programs: React.FC = () => {
               <span className="text-sm text-gray-500 dark:text-gray-400">
                 Auto-save: <span className="font-medium text-green-600 dark:text-green-400">ON</span>
               </span>
-              <button
-                onClick={() => handleAddBlockToPhase(currentPhase)}
-                className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
-              >
-                + Add Block
-              </button>
+              {user?.role !== 'ATHLETE' && (
+                <button
+                  onClick={() => handleAddBlockToPhase(currentPhase)}
+                  className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+                >
+                  + Add Block
+                </button>
+              )}
             </div>
           </div>
 
@@ -1459,15 +1526,17 @@ const Programs: React.FC = () => {
                         <span className="text-xl font-semibold text-gray-900 dark:text-white truncate max-w-xs">
                           {block.muscleGroup}
                         </span>
-                        <button
-                          onClick={() => handleOpenBlockNameEdit(blockIndex, block.muscleGroup)}
-                          className="px-3 py-2 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200 border border-transparent hover:border-blue-200 dark:hover:border-blue-800 flex-shrink-0"
-                          title="Edit block name"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                          </svg>
-                        </button>
+                        {user?.role !== 'ATHLETE' && (
+                          <button
+                            onClick={() => handleOpenBlockNameEdit(blockIndex, block.muscleGroup)}
+                            className="px-3 py-2 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200 border border-transparent hover:border-blue-200 dark:hover:border-blue-800 flex-shrink-0"
+                            title="Edit block name"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                        )}
                       </div>
                     </div>
                     <div className="text-sm text-gray-500 dark:text-gray-400 mt-1 px-2">
@@ -1475,12 +1544,14 @@ const Programs: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => handleDeleteBlock(blockIndex)}
-                      className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700 transition-colors"
-                    >
-                      🗑️
-                    </button>
+                    {user?.role !== 'ATHLETE' && (
+                      <button
+                        onClick={() => handleDeleteBlock(blockIndex)}
+                        className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700 transition-colors"
+                      >
+                        🗑️
+                      </button>
+                    )}
                   </div>
                 </div>
                 
@@ -1504,7 +1575,8 @@ const Programs: React.FC = () => {
                             <div className="col-span-2">
                               <select 
                                 value={rowSelections[`${blockIndex}-${exerciseIndex}`]?.category || ''}
-                                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white text-sm"
+                                disabled={user?.role === 'ATHLETE'}
+                                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-sm"
                                 onChange={(e) => handleExerciseSelectionChange(blockIndex, exerciseIndex, 'category', e.target.value)}
                               >
                                 <option value="">Select Category...</option>
@@ -1519,7 +1591,7 @@ const Programs: React.FC = () => {
                             <div className="col-span-2">
                               <select 
                                 value={rowSelections[`${blockIndex}-${exerciseIndex}`]?.exercise || ''}
-                                disabled={!rowSelections[`${blockIndex}-${exerciseIndex}`]?.category}
+                                disabled={user?.role === 'ATHLETE' || !rowSelections[`${blockIndex}-${exerciseIndex}`]?.category}
                                 className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-sm"
                                 onChange={(e) => handleExerciseSelectionChange(blockIndex, exerciseIndex, 'exercise', e.target.value)}
                               >
@@ -1537,11 +1609,11 @@ const Programs: React.FC = () => {
                             {/* Sets */}
                             <div>
                               <select 
-                                value={rowSelections[`${blockIndex}-${exerciseIndex}`]?.sets || ''}
-                                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white text-sm"
+                                value={rowSelections[`${blockIndex}-${exerciseIndex}`]?.sets || '1'}
+                                disabled={user?.role === 'ATHLETE'}
+                                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-sm"
                                 onChange={(e) => handleExerciseSelectionChange(blockIndex, exerciseIndex, 'sets', e.target.value)}
                               >
-                                <option value="">Sets</option>
                                 {[1,2,3,4,5,6].map(num => (
                                   <option key={num} value={num}>{num}</option>
                                 ))}
@@ -1558,17 +1630,19 @@ const Programs: React.FC = () => {
                               />
                             </div>
                             
-                            {/* Delete Exercise Button */}
+                            {/* Delete Exercise Button - Only for PRO/STAFF */}
                             <div className="flex items-center justify-center">
-                              <button
-                                onClick={() => handleDeleteExercise(blockIndex, exerciseIndex)}
-                                className="p-2 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/20 rounded transition-colors"
-                                title="Delete Exercise"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                              </button>
+                              {user?.role !== 'ATHLETE' && (
+                                <button
+                                  onClick={() => handleDeleteExercise(blockIndex, exerciseIndex)}
+                                  className="p-2 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/20 rounded transition-colors"
+                                  title="Delete Exercise"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              )}
                             </div>
                           </div>
                           
@@ -1593,8 +1667,9 @@ const Programs: React.FC = () => {
                                       type="text"
                                       placeholder="Weight (lbs)"
                                       value={(exercise.setDetails as Record<number, { weight?: string }>)?.[setIndex]?.weight || ''}
+                                      disabled={user?.role === 'ATHLETE'}
                                       onChange={(e) => handleSetWeightChange(blockIndex, exerciseIndex, setIndex, e.target.value)}
-                                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white text-sm"
+                                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-sm"
                                     />
                                   </div>
                                   
@@ -1602,8 +1677,9 @@ const Programs: React.FC = () => {
                                   <div className="col-span-1">
                                     <select
                                       value={(exercise.setDetails as Record<number, { reps?: string }>)?.[setIndex]?.reps || ''}
+                                      disabled={user?.role === 'ATHLETE'}
                                       onChange={(e) => handleSetRepsChange(blockIndex, exerciseIndex, setIndex, e.target.value)}
-                                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white text-sm"
+                                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-sm"
                                     >
                                       <option value="">Reps</option>
                                       {[1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30].map(num => (
@@ -1618,8 +1694,9 @@ const Programs: React.FC = () => {
                                       type="text"
                                       placeholder="Rest (sec)"
                                       value={(exercise.setDetails as Record<number, { restSec?: string }>)?.[setIndex]?.restSec || ''}
+                                      disabled={user?.role === 'ATHLETE'}
                                       onChange={(e) => handleSetRestChange(blockIndex, exerciseIndex, setIndex, e.target.value)}
-                                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white text-sm"
+                                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-neutral-700 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-sm"
                                     />
                                   </div>
                                   
@@ -1852,8 +1929,16 @@ const Programs: React.FC = () => {
                 key={program.id}
                 className="bg-white dark:bg-neutral-800 rounded-lg shadow-lg hover:shadow-xl transition-shadow cursor-pointer"
                 onClick={() => {
-                  setSelectedProgram(program);
+                  // Upgrade old exercise data if needed
+                  const upgradedProgram = upgradeOldExerciseData(program);
+                  
+                  setSelectedProgram(upgradedProgram);
                   setViewMode('detail');
+                  
+                  // Initialize rowSelections with existing exercise data
+                  setTimeout(() => {
+                    initializeRowSelectionsFromProgram(upgradedProgram);
+                  }, 100); // Small delay to ensure exercise categories are loaded
                 }}
               >
                 {/* Program Header */}
@@ -1969,8 +2054,17 @@ const Programs: React.FC = () => {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedProgram(program);
+                          
+                          // Upgrade old exercise data if needed
+                          const upgradedProgram = upgradeOldExerciseData(program);
+                          
+                          setSelectedProgram(upgradedProgram);
                           setViewMode('detail');
+                          
+                          // Initialize rowSelections with existing exercise data
+                          setTimeout(() => {
+                            initializeRowSelectionsFromProgram(upgradedProgram);
+                          }, 100); // Small delay to ensure exercise categories are loaded
                         }}
                         className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
                       >
@@ -2086,7 +2180,7 @@ const Programs: React.FC = () => {
         </div>
 
         {/* Program Details - Simplified Form */}
-        {selectedAthlete && (
+        {selectedAthletes.length > 0 && (
           <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">2. Program Details</h3>
             
@@ -2100,7 +2194,13 @@ const Programs: React.FC = () => {
                   type="text"
                   placeholder="e.g., Strength Training Program"
                   value={newProgramTitle}
-                  onChange={(e) => setNewProgramTitle(e.target.value)}
+                  onChange={(e) => {
+                    const result = secureInput(e.target.value, `program-title-${user?.uid}`, inputPresets.programTitle);
+                    if (result.isValid) {
+                      setNewProgramTitle(result.sanitizedValue);
+                    }
+                  }}
+                  maxLength={inputPresets.programTitle.maxLength}
                   className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
@@ -2150,67 +2250,40 @@ const Programs: React.FC = () => {
           </div>
         )}
 
-        {/* Create Button - Prominent Action */}
-        {selectedAthlete && (
-          <div className="text-center">
+
+
+        {/* Navigation Actions */}
+        <div className="flex flex-col sm:flex-row gap-4 justify-between items-center">
+          <button 
+            onClick={() => {
+              setViewMode('grid');
+              setSelectedAthlete(null);
+            }}
+            className="px-6 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors flex items-center gap-2"
+          >
+            <span>←</span>
+            Back to Programs
+          </button>
+          
+          {selectedAthletes.length > 0 && newProgramTitle.trim() && (
             <button 
               onClick={handleCreateNewProgram}
-              disabled={!newProgramTitle.trim() || isBuildingProgram}
-              className="px-8 py-4 bg-blue-600 text-white text-lg font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl"
+              disabled={isBuildingProgram}
+              className="px-8 py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-semibold transition-colors flex items-center gap-2 text-lg"
             >
               {isBuildingProgram ? (
-                <div className="flex items-center justify-center space-x-2">
+                <>
                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                  <span>Creating Program...</span>
-                </div>
+                  Creating Program...
+                </>
               ) : (
-                '🚀 Create Program Now'
+                <>
+                  Continue to Build Program
+                  <span>→</span>
+                </>
               )}
             </button>
-            
-            {/* Validation Messages */}
-            {!newProgramTitle.trim() && (
-              <p className="text-sm text-red-600 dark:text-red-400 mt-3">
-                ⚠️ Please enter a program title to continue
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Quick Actions */}
-        <div className="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Actions</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <button 
-              onClick={() => setViewMode('exercise-library')}
-              className="p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors text-center"
-            >
-              <div className="text-2xl mb-2">📚</div>
-              <div className="font-medium text-purple-800 dark:text-purple-200">Exercise Library</div>
-              <div className="text-sm text-purple-600 dark:text-purple-300">Manage exercises</div>
-            </button>
-            
-            <button 
-              onClick={() => setViewMode('grid')}
-              className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors text-center"
-            >
-              <div className="text-2xl mb-2">📋</div>
-              <div className="font-medium text-green-800 dark:text-green-200">View Programs</div>
-              <div className="text-sm text-green-600 dark:text-green-300">See all programs</div>
-            </button>
-            
-            <button 
-              onClick={() => {
-                setViewMode('grid');
-                setSelectedAthlete(null);
-              }}
-              className="p-4 bg-gray-50 dark:bg-gray-900/20 border border-gray-200 dark:border-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900/30 transition-colors text-center"
-            >
-              <div className="text-2xl mb-2">←</div>
-              <div className="font-medium text-gray-800 dark:text-gray-200">Back to Programs</div>
-              <div className="text-sm text-gray-600 dark:text-gray-300">Return to main view</div>
-            </button>
-          </div>
+          )}
         </div>
       </div>
     );
@@ -2235,10 +2308,17 @@ const Programs: React.FC = () => {
     return totalExercises > 0 ? Math.round((completedExercises / totalExercises) * 100) : 0;
   };
 
-  const handleExerciseSelectionChange = (blockIndex: number, exerciseIndex: number, field: string, value: string | number) => {
+  const handleExerciseSelectionChange = async (blockIndex: number, exerciseIndex: number, field: string, value: string | number) => {
     if (!selectedProgram || !user) return;
     
+    // Athletes cannot edit program structure
+    if (user.role === 'ATHLETE') {
+      return;
+    }
+    
     const rowKey = `${blockIndex}-${exerciseIndex}`;
+    
+    // Update rowSelections for UI
     setRowSelections(prev => ({
       ...prev,
       [rowKey]: {
@@ -2246,10 +2326,199 @@ const Programs: React.FC = () => {
         [field]: value
       }
     }));
+
+    // Update the actual program data structure
+    const updatedProgram = { ...selectedProgram };
+    const phaseIndex = currentPhase - 1;
+    
+    if (!updatedProgram.phases[phaseIndex]?.blocks[blockIndex]?.exercises[exerciseIndex]) {
+      console.error('❌ Exercise not found in program structure');
+      return;
+    }
+
+    const exercise = updatedProgram.phases[phaseIndex].blocks[blockIndex].exercises[exerciseIndex];
+    
+    // Update the exercise based on the field that changed
+    if (field === 'category') {
+      exercise.category = value as string;
+    } else if (field === 'exercise') {
+      exercise.name = value as string;
+      exercise.exerciseName = value as string;
+    } else if (field === 'sets') {
+      const newSets = parseInt(value as string);
+      exercise.sets = newSets;
+      
+      // Update setDetails array to match new number of sets
+      exercise.setDetails = Array.from({ length: newSets }, (_, setIndex) => ({
+        weight: exercise.setDetails?.[setIndex]?.weight || '0lbs',
+        reps: exercise.setDetails?.[setIndex]?.reps || exercise.reps || 10,
+        restSec: exercise.setDetails?.[setIndex]?.restSec || exercise.restSec || 60,
+        completed: exercise.setDetails?.[setIndex]?.completed || false,
+        notes: exercise.setDetails?.[setIndex]?.notes || ''
+      }));
+    }
+
+    // Update the selectedProgram state
+    setSelectedProgram(updatedProgram);
+
+    // Auto-save to database
+    try {
+      // Check if this is a shared program (athlete viewing a program shared from creator)
+      const isSharedProgram = selectedProgram.isSharedProgram && selectedProgram.sharedFromCreator && selectedProgram.originalProgramId;
+      
+      let targetUserId: string;
+      let targetProgramId: string;
+      
+      if (isSharedProgram) {
+        // For shared programs, update the original program in creator's subcollection
+        targetUserId = selectedProgram.sharedFromCreator!;
+        targetProgramId = selectedProgram.originalProgramId!;
+      } else {
+        // For original programs, update normally
+        targetUserId = user.uid;
+        targetProgramId = selectedProgram.id!;
+      }
+      
+      const result = await updateProgram(targetUserId, targetProgramId, {
+        phases: updatedProgram.phases,
+        updatedAt: Timestamp.now()
+      });
+      
+      if (!result.success) {
+        console.error('❌ Failed to auto-save program:', result.error);
+      }
+    } catch (error) {
+      console.error('❌ Error auto-saving program:', error);
+    }
+  };
+
+  // Update old exercise data to new format
+  const upgradeOldExerciseData = (program: Program): Program => {
+    const exerciseTemplates = [
+      { name: 'Barbell Back Squat', category: 'Legs', sets: 1, reps: 8 },
+      { name: 'Bench Press', category: 'Chest', sets: 1, reps: 10 },
+      { name: 'Deadlift', category: 'Back', sets: 1, reps: 6 },
+      { name: 'Overhead Press', category: 'Shoulders', sets: 1, reps: 8 },
+      { name: 'Bent-Over Row', category: 'Back', sets: 1, reps: 10 },
+      { name: 'Pull-ups', category: 'Back', sets: 1, reps: 8 }
+    ];
+
+    const updatedProgram = { ...program };
+    
+    updatedProgram.phases = program.phases.map((phase, phaseIndex) => ({
+      ...phase,
+      blocks: phase.blocks.map(block => ({
+        ...block,
+        exercises: block.exercises.map((exercise, exerciseIndex) => {
+          // Check if this is old generic exercise data
+          if (exercise.name?.startsWith('Exercise ') && !exercise.category) {
+            const template = exerciseTemplates[exerciseIndex % exerciseTemplates.length];
+            return {
+              name: template.name,
+              category: template.category,
+              exerciseName: template.name,
+              sets: template.sets + phaseIndex, // Increase sets as phases progress
+              reps: Math.max(4, template.reps - phaseIndex),
+              load: '0lbs',
+              tempo: '2-0-2',
+              restSec: 60 + (phaseIndex * 30),
+              completed: false,
+              setDetails: Array.from({ length: template.sets + phaseIndex }, () => ({
+                weight: '0lbs',
+                reps: Math.max(4, template.reps - phaseIndex),
+                restSec: 60 + (phaseIndex * 30),
+                completed: false,
+                notes: ''
+              }))
+            };
+          }
+          // Return existing exercise data if it's already in new format
+          return exercise;
+        })
+      }))
+    })) as [Phase, Phase, Phase, Phase];
+
+    return updatedProgram;
+  };
+
+  // Initialize rowSelections with existing exercise data from the program
+  const initializeRowSelectionsFromProgram = (program: Program) => {
+    const newRowSelections: {[key: string]: {category: string, exercise: string, sets: string, reps: {[key: number]: string}, weight: {[key: number]: string}}} = {};
+    
+    // Get current phase data
+    const phaseIndex = currentPhase - 1;
+    if (!program.phases || !program.phases[phaseIndex]) {
+      return;
+    }
+    
+    const phase = program.phases[phaseIndex];
+    
+    phase.blocks.forEach((block, blockIndex) => {
+      block.exercises.forEach((exercise, exerciseIndex) => {
+        const rowKey = `${blockIndex}-${exerciseIndex}`;
+        
+        // Try to find the exercise category from the exercise data
+        let exerciseCategory = '';
+        const exerciseName = exercise.name || exercise.exerciseName || '';
+        
+        // If the exercise has a category field, use it
+        if (exercise.category) {
+          exerciseCategory = exercise.category;
+          
+          // Check if this is a category name instead of ID
+          const categoryByName = exerciseCategories.find(cat => cat.name === exercise.category);
+          if (categoryByName) {
+            exerciseCategory = categoryByName.id;
+          }
+        } else {
+          // Try to find the category by matching the exercise name
+          for (const category of exerciseCategories) {
+            if (category.exercises.includes(exerciseName)) {
+              exerciseCategory = category.id;
+              break;
+            }
+          }
+        }
+        
+        
+        // Initialize reps and weight objects for each set
+        const repsObject: {[key: number]: string} = {};
+        const weightObject: {[key: number]: string} = {};
+        
+        // If exercise has setDetails, use that
+        if (exercise.setDetails && Array.isArray(exercise.setDetails)) {
+          exercise.setDetails.forEach((setDetail, setIndex) => {
+            repsObject[setIndex + 1] = setDetail.reps?.toString() || exercise.reps?.toString() || '10';
+            weightObject[setIndex + 1] = setDetail.weight || exercise.load || '0lbs';
+          });
+        } else {
+          // Otherwise, use the base exercise data for all sets
+          for (let setIndex = 1; setIndex <= (exercise.sets || 1); setIndex++) {
+            repsObject[setIndex] = exercise.reps?.toString() || '10';
+            weightObject[setIndex] = exercise.load || '0lbs';
+          }
+        }
+        
+        newRowSelections[rowKey] = {
+          category: exerciseCategory,
+          exercise: exerciseName,
+          sets: (exercise.sets || 1).toString(),
+          reps: repsObject,
+          weight: weightObject
+        };
+      });
+    });
+    
+    setRowSelections(newRowSelections);
   };
 
   const handleAddBlockToPhase = (phaseNumber: number) => {
-    if (!selectedProgram) return;
+    if (!selectedProgram || !user) return;
+    
+    // Athletes cannot add blocks
+    if (user.role === 'ATHLETE') {
+      return;
+    }
     
     const updatedProgram = { ...selectedProgram };
     const phase = updatedProgram.phases[phaseNumber - 1];
@@ -2289,7 +2558,12 @@ const Programs: React.FC = () => {
   };
 
   const handleDeleteBlock = (blockIndex: number) => {
-    if (!selectedProgram) return;
+    if (!selectedProgram || !user) return;
+    
+    // Athletes cannot delete blocks
+    if (user.role === 'ATHLETE') {
+      return;
+    }
     
     const block = selectedProgram.phases[currentPhase - 1].blocks[blockIndex];
     const exerciseCount = block.exercises.length;
@@ -2321,16 +2595,24 @@ const Programs: React.FC = () => {
     }
   };
 
-  const handleCompletePhase = async (phaseNumber: number) => {
+  const handleTogglePhaseCompletion = async (phaseNumber: number) => {
     if (!selectedProgram || !user) return;
     
     try {
       const updatedProgram = { ...selectedProgram };
       const phase = updatedProgram.phases[phaseNumber - 1];
+      const currentStatus = (phase as Phase & { status?: string }).status;
+      const isCurrentlyCompleted = currentStatus === 'completed';
       
-      // Mark phase as completed (add custom property)
-      (phase as Phase & { status?: string; completedAt?: Date }).status = 'completed';
-      (phase as Phase & { status?: string; completedAt?: Date }).completedAt = new Date();
+      if (isCurrentlyCompleted) {
+        // Mark as incomplete
+        (phase as Phase & { status?: string; completedAt?: Date }).status = 'in-progress';
+        delete (phase as Phase & { status?: string; completedAt?: Date }).completedAt;
+      } else {
+        // Mark as completed
+        (phase as Phase & { status?: string; completedAt?: Date }).status = 'completed';
+        (phase as Phase & { status?: string; completedAt?: Date }).completedAt = new Date();
+      }
       
       // Update program
       setSelectedProgram(updatedProgram);
@@ -2348,19 +2630,17 @@ const Programs: React.FC = () => {
         ));
         
         // Show success message
-        alert(`Phase ${phaseNumber} marked as completed!`);
+        const newStatus = isCurrentlyCompleted ? 'incomplete' : 'completed';
+        alert(`Phase ${phaseNumber} marked as ${newStatus}!`);
         
-        // Move to next phase if available
-        if (phaseNumber < 4) {
-          setCurrentPhase(phaseNumber + 1);
-        }
+        // Don't auto-move to next phase when toggling
       } else {
-        console.error('Error completing phase:', result.error);
-        alert('Failed to complete phase. Please try again.');
+        console.error('Error updating phase status:', result.error);
+        alert('Failed to update phase status. Please try again.');
       }
     } catch (error) {
-      console.error('Error completing phase:', error);
-      alert('Failed to complete phase. Please try again.');
+      console.error('Error updating phase status:', error);
+      alert('Failed to update phase status. Please try again.');
     }
   };
 
@@ -2515,7 +2795,12 @@ const Programs: React.FC = () => {
   };
 
   const handleSetWeightChange = (blockIndex: number, exerciseIndex: number, setIndex: number, weight: string) => {
-    if (!selectedProgram) return;
+    if (!selectedProgram || !user) return;
+    
+    // Athletes cannot edit program structure
+    if (user.role === 'ATHLETE') {
+      return;
+    }
     
     const updatedProgram = { ...selectedProgram };
     const currentPhaseData = updatedProgram.phases[currentPhase - 1];
@@ -2541,7 +2826,12 @@ const Programs: React.FC = () => {
   };
 
   const handleSetRestChange = (blockIndex: number, exerciseIndex: number, setIndex: number, restSec: string) => {
-    if (!selectedProgram) return;
+    if (!selectedProgram || !user) return;
+    
+    // Athletes cannot edit program structure
+    if (user.role === 'ATHLETE') {
+      return;
+    }
     
     const updatedProgram = { ...selectedProgram };
     const currentPhaseData = updatedProgram.phases[currentPhase - 1];
@@ -2619,7 +2909,12 @@ const Programs: React.FC = () => {
   };
 
   const handleSetRepsChange = (blockIndex: number, exerciseIndex: number, setIndex: number, reps: string) => {
-    if (!selectedProgram) return;
+    if (!selectedProgram || !user) return;
+    
+    // Athletes cannot edit program structure
+    if (user.role === 'ATHLETE') {
+      return;
+    }
     
     const updatedProgram = { ...selectedProgram };
     const currentPhaseData = updatedProgram.phases[currentPhase - 1];
@@ -2645,7 +2940,13 @@ const Programs: React.FC = () => {
   };
 
   const handleBlockNameChange = (blockIndex: number, newName: string) => {
-    if (!selectedProgram) return;
+    if (!selectedProgram || !user) return;
+    
+    // Athletes cannot edit block names
+    if (user.role === 'ATHLETE') {
+      console.log('🚫 Athletes cannot edit block names');
+      return;
+    }
     
     const updatedProgram = { ...selectedProgram };
     const currentPhaseData = updatedProgram.phases[currentPhase - 1];
@@ -2663,6 +2964,12 @@ const Programs: React.FC = () => {
   const [editingBlockNameInput, setEditingBlockNameInput] = useState('');
 
   const handleOpenBlockNameEdit = (blockIndex: number, currentName: string) => {
+    // Athletes cannot edit block names
+    if (user?.role === 'ATHLETE') {
+      console.log('🚫 Athletes cannot edit block names');
+      return;
+    }
+    
     setEditingBlockName({ blockIndex, currentName });
     setEditingBlockNameInput(currentName);
   };
@@ -2707,7 +3014,13 @@ const Programs: React.FC = () => {
             <input
               type="text"
               value={editingBlockNameInput}
-              onChange={(e) => setEditingBlockNameInput(e.target.value)}
+              onChange={(e) => {
+                const result = secureInput(e.target.value, `blockname-${user?.uid}`, inputPresets.blockName);
+                if (result.isValid) {
+                  setEditingBlockNameInput(result.sanitizedValue);
+                }
+              }}
+              maxLength={inputPresets.blockName.maxLength}
               className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-neutral-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="Enter block name..."
               autoFocus

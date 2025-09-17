@@ -80,7 +80,8 @@ service cloud.firestore {
         allow create, update, delete: if isSignedIn() && (
           uid() == userId || // User can manage their programs
           (isPro() && proId() == userId) || // PRO can manage team programs
-          (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can manage programs
+          (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) || // Team members can manage programs
+          (isProOrStaff() && get(/databases/$(database)/documents/users/$(userId)).data.proId == proId()) // PRO/STAFF can create programs for their team members
         );
       }
       
@@ -103,12 +104,13 @@ service cloud.firestore {
         allow read: if isSignedIn() && (
           uid() == userId || // User owns their exercises
           (isPro() && proId() == userId) || // PRO can read team exercises
-          (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can read exercises
+          (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) || // Team members can read exercises
+          (isAthlete() && proId() == userId) // Athletes can read their PRO's exercises
         );
         allow create, update, delete: if isSignedIn() && (
           uid() == userId || // User can manage their exercises
           (isPro() && proId() == userId) || // PRO can manage team exercises
-          (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can manage exercises
+          (isProOrStaff() && proId() == get(/databases/$(database)/documents/users/$(userId)).data.proId) // Team members can manage exercises (not athletes)
         );
       }
       

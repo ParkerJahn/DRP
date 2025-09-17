@@ -90,16 +90,53 @@ export const deleteExerciseCategory = async (userId: string, categoryId: string)
 // Program Management - Now using user subcollections
 export const createProgram = async (userId: string, programData: Omit<Program, 'createdAt' | 'updatedAt'>) => {
   try {
-    const userProgramsRef = collection(db, 'users', userId, 'programs');
-    const programRef = doc(userProgramsRef);
     const newProgram = {
       ...programData,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
     
-    await addDoc(userProgramsRef, newProgram);
-    return { success: true, programId: programRef.id, program: newProgram };
+    // Store program in creator's subcollection
+    const creatorProgramsRef = collection(db, 'users', userId, 'programs');
+    const creatorProgramRef = await addDoc(creatorProgramsRef, newProgram);
+    
+    // Also store copies in each assigned athlete's subcollection
+    if (programData.athleteUids && programData.athleteUids.length > 0) {
+
+      const copyPromises = programData.athleteUids.map(async (athleteUid) => {
+        if (athleteUid !== userId) { // Don't duplicate if the creator is also an athlete
+          try {
+
+            const athleteProgramsRef = collection(db, 'users', athleteUid, 'programs');
+            await addDoc(athleteProgramsRef, {
+              ...newProgram,
+              // Add metadata to track this is a shared program
+              sharedFromCreator: userId,
+              isSharedProgram: true,
+              originalProgramId: creatorProgramRef.id
+            });
+
+          } catch (error) {
+            console.error(`❌ Failed to share program with athlete ${athleteUid}:`, error);
+            console.error('Error details:', {
+              athleteUid,
+              creatorUid: userId,
+              programData: {
+                proId: programData.proId,
+                athleteUids: programData.athleteUids,
+                title: programData.title
+              }
+            });
+            // Continue with other athletes even if one fails
+          }
+        }
+      });
+      
+      // Wait for all athlete copies to be created
+      await Promise.allSettled(copyPromises);
+    }
+    
+    return { success: true, programId: creatorProgramRef.id, program: newProgram };
   } catch (error) {
     console.error('Error creating program:', error);
     return { success: false, error };
@@ -124,11 +161,50 @@ export const getProgram = async (userId: string, programId: string) => {
 
 export const updateProgram = async (userId: string, programId: string, updates: Partial<Program>) => {
   try {
-    const programRef = doc(db, 'users', userId, 'programs', programId);
-    await updateDoc(programRef, {
+    const updateData = {
       ...updates,
       updatedAt: serverTimestamp(),
-    });
+    };
+    
+    // Update the main program
+    const programRef = doc(db, 'users', userId, 'programs', programId);
+    await updateDoc(programRef, updateData);
+    
+    // Get the program data to check if it has assigned athletes
+    const programSnap = await getDoc(programRef);
+    if (programSnap.exists()) {
+      const programData = programSnap.data() as Program;
+      
+      // If this program has assigned athletes, update their copies too
+      if (programData.athleteUids && programData.athleteUids.length > 0) {
+        const updatePromises = programData.athleteUids.map(async (athleteUid) => {
+          if (athleteUid !== userId) { // Don't update creator's own copy twice
+            try {
+              // Find the shared program in athlete's subcollection
+              const athleteProgramsRef = collection(db, 'users', athleteUid, 'programs');
+              const athleteQuery = query(
+                athleteProgramsRef, 
+                where('originalProgramId', '==', programId)
+              );
+              const athleteQuerySnap = await getDocs(athleteQuery);
+              
+              // Update each matching shared program
+              const athleteUpdatePromises = athleteQuerySnap.docs.map(doc => 
+                updateDoc(doc.ref, updateData)
+              );
+              await Promise.all(athleteUpdatePromises);
+
+            } catch (error) {
+              console.error(`Failed to sync updates to athlete ${athleteUid}:`, error);
+              // Continue with other athletes even if one fails
+            }
+          }
+        });
+        
+        await Promise.allSettled(updatePromises);
+      }
+    }
+    
     return { success: true };
   } catch (error) {
     console.error('Error updating program:', error);
@@ -139,7 +215,43 @@ export const updateProgram = async (userId: string, programId: string, updates: 
 export const deleteProgram = async (userId: string, programId: string) => {
   try {
     const programRef = doc(db, 'users', userId, 'programs', programId);
+    
+    // Get the program data before deleting to check for shared copies
+    const programSnap = await getDoc(programRef);
+    const programData = programSnap.exists() ? programSnap.data() as Program : null;
+    
+    // Delete the main program
     await deleteDoc(programRef);
+    
+    // If this program had assigned athletes, delete their copies too
+    if (programData?.athleteUids && programData.athleteUids.length > 0) {
+      const deletePromises = programData.athleteUids.map(async (athleteUid) => {
+        if (athleteUid !== userId) { // Don't try to delete from creator's collection twice
+          try {
+            // Find and delete the shared program in athlete's subcollection
+            const athleteProgramsRef = collection(db, 'users', athleteUid, 'programs');
+            const athleteQuery = query(
+              athleteProgramsRef, 
+              where('originalProgramId', '==', programId)
+            );
+            const athleteQuerySnap = await getDocs(athleteQuery);
+            
+            // Delete each matching shared program
+            const athleteDeletePromises = athleteQuerySnap.docs.map(doc => 
+              deleteDoc(doc.ref)
+            );
+            await Promise.all(athleteDeletePromises);
+
+          } catch (error) {
+            console.error(`Failed to delete shared program from athlete ${athleteUid}:`, error);
+            // Continue with other athletes even if one fails
+          }
+        }
+      });
+      
+      await Promise.allSettled(deletePromises);
+    }
+    
     return { success: true };
   } catch (error) {
     console.error('Error deleting program:', error);
@@ -150,18 +262,22 @@ export const deleteProgram = async (userId: string, programId: string) => {
 // Get programs for a specific user
 export const getUserPrograms = async (userId: string) => {
   try {
+
     const userProgramsRef = collection(db, 'users', userId, 'programs');
     const q = query(userProgramsRef, orderBy('updatedAt', 'desc'));
     const querySnapshot = await getDocs(q);
     
     const programs: Array<Program & { id: string }> = [];
     querySnapshot.forEach((doc) => {
-      programs.push({ id: doc.id, ...doc.data() } as Program & { id: string });
+      const programData = { id: doc.id, ...doc.data() } as Program & { id: string };
+      programs.push(programData);
+
     });
     
+
     return { success: true, programs };
   } catch (error) {
-    console.error('Error fetching user programs:', error);
+    console.error(`❌ Error fetching user programs for ${userId}:`, error);
     return { success: false, error };
   }
 };
@@ -217,11 +333,25 @@ export const getProgramsByPro = async (proId: string) => {
         const programsSnapshot = await getDocs(programsQuery);
         
         programsSnapshot.forEach((doc) => {
-          allPrograms.push({ 
-            id: doc.id, 
-            userId: userId,
-            ...doc.data() 
-          } as Program & { id: string; userId: string });
+          const programData = doc.data() as Program;
+          
+          // For PRO view, only show:
+          // 1. Programs created by PRO/STAFF (original programs)
+          // 2. Programs created by athletes (athlete-created programs)
+          // Skip shared copies in athlete subcollections to avoid duplicates
+          const shouldInclude = 
+            !programData.isSharedProgram || // Include original programs and athlete-created programs
+            userId === proId; // Always include programs from PRO's own subcollection
+            
+
+            
+          if (shouldInclude) {
+            allPrograms.push({ 
+              id: doc.id, 
+              userId: userId,
+              ...programData 
+            } as Program & { id: string; userId: string });
+                      }
         });
       } catch (error) {
         console.warn(`Error fetching programs for user ${userId}:`, error);
@@ -235,6 +365,8 @@ export const getProgramsByPro = async (proId: string) => {
       const bTime = b.updatedAt?.toDate?.()?.getTime() || 0;
       return bTime - aTime;
     });
+    
+
     
     return { success: true, programs: allPrograms };
   } catch (error) {

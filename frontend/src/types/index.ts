@@ -180,6 +180,11 @@ export interface Program {
   createdBy: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  
+  // Shared program fields (for programs shared with athletes)
+  isSharedProgram?: boolean; // True if this is a copy in an athlete's subcollection
+  sharedFromCreator?: string; // UID of the creator (PRO/STAFF) who shared this program
+  originalProgramId?: string; // ID of the original program in creator's subcollection
 }
 
 export interface Phase {

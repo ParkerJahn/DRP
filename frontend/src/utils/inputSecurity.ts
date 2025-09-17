@@ -157,7 +157,7 @@ export class InputSecurityManager {
     }
 
     // Check for valid exercise name patterns (letters, numbers, spaces, hyphens, parentheses)
-    const exerciseNameRegex = /^[a-zA-Z0-9\s\-\(\)\.\']+$/;
+    const exerciseNameRegex = /^[a-zA-Z0-9\s\-().']+$/;
     if (!exerciseNameRegex.test(sanitized)) {
       return { isValid: false, sanitized, error: 'Exercise name contains invalid characters' };
     }
@@ -176,7 +176,7 @@ export class InputSecurityManager {
     let sanitized = value.trim();
     
     // Remove dangerous patterns but allow some special characters for search
-    sanitized = sanitized.replace(/[<>\"\';&|`]/g, '');
+    sanitized = sanitized.replace(/[<>"';&|`]/g, '');
     
     // Limit length
     if (sanitized.length > maxLength) {

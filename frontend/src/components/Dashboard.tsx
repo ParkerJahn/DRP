@@ -14,7 +14,6 @@ import { AthleteAnalytics } from './analytics/AthleteAnalytics';
 import { useAsyncCallback } from '../hooks/useAsyncCallback';
 import { auth } from '../config/firebase';
 import { getIdToken } from 'firebase/auth';
-import { assignManualRole, checkUserState } from '../utils/manualRoleAssignment';
 
 interface DashboardStats {
   staffCount: number;

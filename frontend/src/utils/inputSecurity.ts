@@ -267,7 +267,7 @@ export class InputSecurityManager {
     exerciseName: {
       type: 'exercise' as const,
       maxLength: INPUT_LIMITS.EXERCISE_NAME_MAX,
-      minLength: 2,
+      minLength: 0,
       required: true,
       rateLimit: 'form' as const
     },
@@ -281,21 +281,21 @@ export class InputSecurityManager {
     message: {
       type: 'message' as const,
       maxLength: INPUT_LIMITS.MESSAGE_MAX,
-      minLength: 1,
+      minLength: 0,
       required: true,
       rateLimit: 'message' as const
     },
     programTitle: {
       type: 'text' as const,
       maxLength: INPUT_LIMITS.PROGRAM_NAME_MAX,
-      minLength: 3,
+      minLength: 0,
       required: true,
       rateLimit: 'form' as const
     },
     blockName: {
       type: 'text' as const,
       maxLength: INPUT_LIMITS.SHORT_TEXT_MAX,
-      minLength: 1,
+      minLength: 0,
       required: true,
       rateLimit: 'form' as const
     }

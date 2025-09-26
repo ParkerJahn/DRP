@@ -2195,6 +2195,14 @@ const Programs: React.FC = () => {
                   placeholder="e.g., Strength Training Program"
                   value={newProgramTitle}
                   onChange={(e) => {
+                    // Simple length check during typing to avoid rate limiting
+                    const value = e.target.value;
+                    if (value.length <= inputPresets.programTitle.maxLength) {
+                      setNewProgramTitle(value);
+                    }
+                  }}
+                  onBlur={(e) => {
+                    // Apply full security validation only on blur
                     const result = secureInput(e.target.value, `program-title-${user?.uid}`, inputPresets.programTitle);
                     if (result.isValid) {
                       setNewProgramTitle(result.sanitizedValue);

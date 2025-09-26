@@ -560,14 +560,18 @@ const Messages: React.FC = () => {
                     value={newMessage}
                     maxLength={inputPresets.message.maxLength}
                     onChange={(e) => {
+                      const value = e.target.value;
+                      if (value.length <= inputPresets.message.maxLength) {
+                        setNewMessage(value);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      // Apply full security validation only on blur
                       const result = secureInput(e.target.value, `message-${user?.uid}`, inputPresets.message);
                       if (result.isValid) {
                         setNewMessage(result.sanitizedValue);
-                      } else if (result.rateLimited) {
-                        alert(result.error);
                       }
                     }}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                     placeholder="Type your message..."
                     className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent dark:bg-neutral-700 dark:text-white"
                     disabled={sendingMessage}
